@@ -77,7 +77,7 @@ def run_cmd(cmd, env='main_env'):
     """This function runs a cmd with a given env"""
 
     # define the cmds
-    SOURCE_CONDA_CMD = "source %s/etc/profile.d/conda.sh"%CondaDir
+    SOURCE_CONDA_CMD = "source %s/etc/profile.d/conda.sh > /dev/null 2>&1"%CondaDir
     cmd_prefix = "%s && conda activate %s > /dev/null 2>&1 &&"%(SOURCE_CONDA_CMD, env)
 
     # define the cmd

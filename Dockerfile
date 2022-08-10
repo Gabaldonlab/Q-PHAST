@@ -19,36 +19,34 @@ RUN conda install -y -c conda-forge mamba
 
 # create the environment to run colonyzer (colonyzer_env)
 RUN mamba env create --file ./installation/colonyzer_env.yml --name colonyzer_env
-RUN source /opt/conda/etc/profile.d/conda.sh  && conda activate colonyzer_env && pip install Colonyzer2==1.1.22
-RUN source /opt/conda/etc/profile.d/conda.sh  && conda activate colonyzer_env && pip install pygame==1.9.6
-RUN source /opt/conda/etc/profile.d/conda.sh  && conda activate colonyzer_env && pip install sobol==0.9
-RUN source /opt/conda/etc/profile.d/conda.sh  && conda activate colonyzer_env && which pip
+SHELL ["conda", "run", "-n", "colonyzer_env", "/bin/bash", "-e", "-c"] # run from colonyzer_env
+RUN pip install Colonyzer2==1.1.22
+RUN pip install pygame==1.9.6
+RUN pip install sobol==0.9
 
 # create the main conda env
+SHELL ["conda", "run", "-n", "base", "/bin/bash", "-e", "-c"] # run from base env
 RUN mamba env create --file ./installation/main_env.yml --name main_env
+SHELL ["conda", "run", "-n", "main_env", "/bin/bash", "-e", "-c"] # run from base env
 RUN conda install -n main_env -c conda-forge --force-reinstall ld_impl_linux-64 # fix the packages
-RUN source /opt/conda/etc/profile.d/conda.sh  && conda activate main_env && /workdir_app/installation/install_R_packages_main_env.R # install extra packages
+RUN /workdir_app/installation/install_R_packages_main_env.R # install extra packages
 
 # run the application
-CMD source /opt/conda/etc/profile.d/conda.sh  && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py
+CMD source /opt/conda/etc/profile.d/conda.sh > /dev/null 2>&1 && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py
 
 #### COMMENTS ####
 
-# Create this image with 'docker build -t qcast:v0.1 -f ./Dockerfile .'
+# Create this image with 'docker build -t mikischikora/qcast:v0.1 -f ./Dockerfile .'
 
-# Run with 'docker run qcast:v0.1'
-# Debug run with 'docker run -v /home/mschikora/samba/scripts/qCAST/scripts:/workdir_app/scripts qcast:v0.1' # developing scripts
-# Debug run with 'docker run  -e DISPLAY=$DISPLAY  -v /tmp/.X11-unix:/tmp/.X11-unix:rw -v $(pwd)/app:/app  -v /home/mschikora/samba/scripts/qCAST/scripts:/workdir_app/scripts   qcast:v0.1' # developing scripts
+# Upload to dockerhub with 'docker push mikischikora/qcast:v0.1'
 
+# download with 'docker pull mikischikora/qcast:v0.1'
 
-
-
-# Run with display 'docker run -u=$(id -u $USER):$(id -g $USER) -e DISPLAY=$DISPLAY -v /home/mschikora/samba/scripts/qCAST/scripts:/workdir_app/scripts --rm qcast:v0.1'
-
-# docker run -u=$(id -u $USER):$(id -g $USER) -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix:rw -v $(pwd)/app:/app --rm tkinter_in_docker
+# echo "SUCCESS: You could create the docker image of perSVade. You can publish this image with docker push mikischikora/persvade:$tag. You can then create a singularity image with singularity build --docker-login ./mikischikora_persvade_$tag.sif docker://mikischikora/persvade:$tag"
 
 
-# -v $PWD/docker/perSVade_testing_outputs_$tag:/perSVade/installation/test_installation/testing_outputs
+# Run with 'xhost +local:docker && docker run -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v $(pwd)/scripts:/workdir_app/scripts --rm mikischikora/qcast:v0.1' # tested on opensuse
+
 
 
 ##################
