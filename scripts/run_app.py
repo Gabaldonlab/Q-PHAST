@@ -1,26 +1,39 @@
 #!/usr/bin/env python
 
-print("running app...")
+# This script takes either a /strains_and_drugs or an /images mounted volume, which triggers two types of behaviors
 
-import os
-print(os.listdir("/host_machine_root"))
-sjgagahdad
+########## DEFIINE ENV #########
 
-import tkinter as tk
+# this is run from /workdir_app inside the docker image
 
-# Tkinter Window
-root_window = tk.Tk()
+# module imports
+import os, sys
 
-# Window Settings
-root_window.title('Application Title')
-root_window.geometry('300x100')
-root_window.configure(background = '#353535')
+# define dirs
+ScriptsDir = "/workdir_app/scripts"
+CondaDir =  "/opt/conda"
+OutDir = "/output"
+StrainsAndDrugsDir = "/strains_and_drugs"
+ImagesDir = "/images"
 
-# Text
-tk.Label(root_window, text='Hello World', fg='White', bg='#353535').pack()
+# import the functions
+sys.path.insert(0, ScriptsDir)
+import app_functions as fun
 
-# Exit Button
-tk.Button(root_window, text='Exit', width=10, command=root_window.destroy).pack()
+# log
+fun.print_with_runtime("running %s"%fun.PipelineName)
 
-# Main loop
-root_window.mainloop()
+################################
+
+######### TEST ENV ########
+
+# check that the pygame can be executed
+fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
+
+
+###########################
+
+
+
+# log
+fun.print_with_runtime("%s finished successfully"%fun.PipelineName)

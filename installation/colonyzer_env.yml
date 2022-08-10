@@ -1,0 +1,13 @@
+name: colonyzer_env
+channels:
+  - conda-forge
+  - bioconda
+  - anaconda
+  - defaults
+dependencies:
+  - python=2.7.15
+  - matplotlib=2.2.5
+  - pandas=0.24.2
+  - scipy=1.2.1
+  - pillow=6.2.1
+  - opencv=4.2.0

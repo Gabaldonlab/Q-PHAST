@@ -1,0 +1,25 @@
+name: main_env
+channels:
+  - conda-forge
+  - bioconda
+  - anaconda
+  - defaults
+dependencies:
+  - python=3.6.11
+  - pandas=1.1.2
+  - biopython=1.78
+  - xlrd=1.2.0
+  - matplotlib=3.3.0
+  - seaborn=0.11.0
+  - r-base=3.6.3
+  - r-sp=1.3_1
+  - r-quantreg=5.55
+  - r-jpeg=0.1_8
+  - r-knitr=1.22
+  - r-argparser=0.6
+  - r-deoptim=2.2_6
+  - r-getopt=1.20.3
+
+
+
+
