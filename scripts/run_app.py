@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# This script takes either a /strains_and_drugs or an /images mounted volume, which triggers two types of behaviors
+# This script runs the module as defined by $MODULE
 
 ########## DEFIINE ENV #########
 
@@ -13,7 +13,7 @@ import os, sys
 ScriptsDir = "/workdir_app/scripts"
 CondaDir =  "/opt/conda"
 OutDir = "/output"
-StrainsAndDrugsDir = "/strains_and_drugs"
+SmallInputs = "/small_inputs"
 ImagesDir = "/images"
 
 # import the functions
@@ -40,24 +40,20 @@ if not os.path.isdir(OutDir): raise ValueError("You should specify the output di
 #### MAIN #####
 
 # depending on the input run one or the other pipeline
-if os.path.isdir(StrainsAndDrugsDir) and not os.path.isdir(ImagesDir):
+if os.env["MODULE"]=="get_plate_layout":
 
-	# define the name of the pipeline
-	pipeline_step_name = "plate positions"
+	pass
 
-	# run pipeline
 
-elif os.path.isdir(ImagesDir) and not os.path.isdir(StrainsAndDrugsDir):
+if os.env["MODULE"]=="analyze_images"
+	
+	pass
 
-	# define the name of the pipeline
-	pipeline_step_name = "image analysis"
 
-	# run pipeline
-
-else: raise ValueError("You should pass either a directory with strains and drugs (in a linux terminal '-v <directory with strains and drugs>:/strains_and_drugs') or a directory with images (in a linux terminal '-v <directory with images>:/images'), but not both. ")
+else: raise ValueError("The module is  incorrect")
 
 ###############
 
 
 # log
-fun.print_with_runtime("%s: pipeline '%s' finished successfully"%(fun.PipelineName, pipeline_step_name))
+fun.print_with_runtime("%s: pipeline '%s' finished successfully"%(fun.PipelineName, os.env["MODULE"]))
