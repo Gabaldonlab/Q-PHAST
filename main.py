@@ -3,7 +3,8 @@
 ############# ENV ############
 
 # imports
-import os, sys, argparse, shutil
+import os, sys, argparse, shutil, subprocess
+from pathlib import Path
 
 description = """
 This is a pipeline to measure antifungal susceptibility from image data in any OS. Run with: 
@@ -12,7 +13,7 @@ This is a pipeline to measure antifungal susceptibility from image data in any O
 
     In windows: 'py main.py <arguments>'
 
-Check the github repository (https://github.com/Gabaldonlab/qCAST) to know how to use this script.
+Check the github repository (https://github.comGabaldonlab/qCAST) to know how to use this script.
 """
 
 # mandatory arguments              
@@ -47,12 +48,16 @@ def get_fullpath(x):
         else: return "%s/%s"%(os.getcwd(), x)
 
     elif opt.os=="windows":
+        if Path(x).is_absolute() is True: return x
 
-        define_windows_full_path
+        # a .\
+        elif x.startswith(".\\"): return "%s\\%s"%(os.getcwd(), "\\".join(x.split("\\")[1:]))
+
+        # others (including ..\)
+        else: return "%s\\%s"%(os.getcwd(), x)
 
     else: raise ValueError("--os should have 'linux', 'mac' or 'windows'")
 
-        
 def run_cmd(cmd):
 
     """Runs os.system in cmd"""
@@ -77,6 +82,15 @@ def file_is_empty(path):
     elif os.stat(path).st_size==0: return True
     else: return False
 
+def get_os_sep(): return {"windows":"\\", "linux":"/", "mac":"/"}[opt.os]
+
+def copy_file(origin_file, dest_file):
+
+    """Copies file"""
+
+    dest_file_tmp = "%s.tmp"%dest_file
+    shutil.copy(origin_file, dest_file_tmp)
+    os.rename(dest_file_tmp, dest_file)
 
 ##############################
 
@@ -102,7 +116,7 @@ if not opt.os in {"linux", "mac", "windows"}: raise ValueError("--os should have
 
 # check that the docker image can be run
 print("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
-run_cmd("docker run -it --rm %s bash -c 'sleep 1'"%(opt.docker_image))
+run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
 print("The docker image can be run.")
 
 #############################
@@ -114,17 +128,37 @@ opt.output = get_fullpath(opt.output)
 make_folder(opt.output)
 
 # make the inputs_dir, where the small inputs will be stored
-tmp_input_dir = "%s/tmp_small_inputs"%opt.output
+tmp_input_dir = "%s%stmp_small_inputs"%(opt.output, get_os_sep())
 delete_folder(tmp_input_dir); make_folder(tmp_input_dir)
 
-
 # init command with general features
-docker_cmd = 'docker run --rm -e MODULE=%s -v "%s":/small_inputs'%(tmp_input_dir, opt.module)
+docker_cmd = 'docker run --rm -it -e MODULE=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, tmp_input_dir, opt.output)
 
-# move files and update the docker_cmd for each module
+# add the scripts (debug)
+if opt.os in {"linux", "mac"}: CurDir = get_fullpath("/".join(__file__.split("/")[0:-1]))
+elif opt.os=="windows": CurDir = get_fullpath("\\".join(__file__.split("\\")[0:-1]))
+docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(CurDir, get_os_sep())
+
+# configure for each os
+if opt.os=="linux":
+
+    docker_cmd = 'xhost +local:docker && %s'%docker_cmd
+    docker_cmd += ' -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix'
+
+elif opt.os=="mac":
+
+    local_IP = str(subprocess.check_output("ifconfig en0 | grep 'inet '", shell=True)).split("inet")[1].split()[0]
+    docker_cmd = 'xhost +%s && %s'%(local_IP, docker_cmd)
+    docker_cmd += ' -e DISPLAY=%s:0'%local_IP
+
+elif opt.os=="windows":
+
+    docker_cmd += " -e DISPLAY=host.docker.internal:0.0"
+
+# copy files and update the docker_cmd for each module
 if opt.module=="get_plate_layout":
-
-    pass
+    copy_file(opt.strains, "%s%sstrains.xlsx"%(tmp_input_dir, get_os_sep()))
+    copy_file(opt.drugs, "%s%sdrugs.xlsx"%(tmp_input_dir, get_os_sep()))
 
 elif opt.module=="analyze_images":
 
@@ -133,16 +167,13 @@ elif opt.module=="analyze_images":
 
 
 # at the end add the name of the image
-docker_cmd += " %s"%opt.docker_image
+docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py"'%opt.docker_image
 
 # run
-print("running docker...")
+print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
 run_cmd(docker_cmd)
 delete_folder(tmp_input_dir) # clean
 print("main.py %s worked successfully!"%opt.module)
 
 ###########################################################
-
-
-print(opt.output )
 
