@@ -448,13 +448,32 @@ def run_analyze_images(plate_layout_file, images_dir, outdir):
 
 
     #######################################
+
+    ##### RUN THE IMAGE ANALYSIS PIPELINE FOR EACH PLATE AND PLATE SET #####
+
+    # go through each plate in each plate set and define the coordinates of the plates manually
+
+
+    # go through each plate and plate set and run in parallel the calculations
+
+
+
+
+    ########################################################################
+
+
+    #### INTEGRATE THE PLATE SETS ####
+
+    # run the AST calculations based on all plates
+
+    ##################################
     
     jhgadjhgdaad
 
 
     ###### CLEAN #####
 
-    # keep some files to outdir
+    # keep only the important folders in outdir
     jadhgjhagjdagdahg
 
     # clean
