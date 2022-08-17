@@ -7,7 +7,7 @@
 # this is run from /workdir_app inside the docker image
 
 # module imports
-import os, sys
+import os, sys, time
 
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
@@ -23,12 +23,15 @@ import app_functions as fun
 # log
 fun.print_with_runtime("running %s %s"%(fun.PipelineName, os.environ["MODULE"]))
 
+# get the start time
+start_time = time.time()
+
 ################################
 
 ######### TEST ENV ########
 
 # check that the pygame can be executed
-#fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
+fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
 
 # the output directory should exist
 if not os.path.isdir(OutDir): raise ValueError("You should specify the output directory by setting a volume. If you are running on linux terminal you can set '-v <output directory>:/output'")
@@ -40,11 +43,7 @@ if not os.path.isdir(OutDir): raise ValueError("You should specify the output di
 # depending on the input run one or the other pipeline
 if os.environ["MODULE"]=="get_plate_layout": fun.run_get_plate_layout("%s/strains.xlsx"%SmallInputs, "%s/drugs.xlsx"%SmallInputs, OutDir)
 
-
-elif os.environ["MODULE"]=="analyze_images":
-	
-	pass
-
+elif os.environ["MODULE"]=="analyze_images": fun.run_analyze_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir)
 
 else: raise ValueError("The module is  incorrect")
 
@@ -52,4 +51,4 @@ else: raise ValueError("The module is  incorrect")
 
 
 # log
-fun.print_with_runtime("%s: pipeline '%s' finished successfully"%(fun.PipelineName, os.env["MODULE"]))
+fun.print_with_runtime("%s: pipeline '%s' finished successfully in %.4f seconds"%(fun.PipelineName, os.environ["MODULE"], time.time()-start_time))

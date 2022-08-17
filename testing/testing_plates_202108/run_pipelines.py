@@ -28,6 +28,11 @@ def make_folder(f):
 def delete_folder(f):
     if os.path.isdir(f): shutil.rmtree(f)
 
+def file_is_empty(path): 
+    if not os.path.isfile(path): return True
+    elif os.stat(path).st_size==0: return True
+    else: return False
+
 # define the sep
 sep = {"linux":"/", "mac":"/", "windows":"\\"}[operating_system]
 python_exec = {"linux":"python3", "mac":"python3", "windows":"py"}[operating_system]
@@ -45,6 +50,9 @@ if operating_system=="windows":
 	print("synching windows files...")
 	for parent, folders, files in os.walk(qCAST_dir):
 
+		# skip the other outdirs
+		if "outdir_mac" in parent or "outdir_linux" in parent: continue
+
 		# define the C_parent
 		C_parent = parent.replace(qCAST_dir, C_qCAST_dir)
 
@@ -53,13 +61,12 @@ if operating_system=="windows":
 
 		# make folders
 		for f in folders: 
-			if f.startswith(".") or f.startswith("__"): continue
+			if f.startswith(".") or f.startswith("__") or "outdir_mac" in f or "outdir_linux" in f: continue
 			make_folder("%s\\%s"%(C_parent, f))
 
 		# make files
 		for f in files:
-			if f.startswith(".") or "outdir_mac" in f or "outdir_linux" in f: continue
-
+			if f.startswith("."): continue
 			if not os.path.isfile("%s\\%s"%(C_parent, f)) or not ".tif" in f:
 				shutil.copy("%s\\%s"%(parent, f), "%s\\%s"%(C_parent, f))
 
@@ -78,6 +85,19 @@ make_folder(outdir)
 
 # run the modules
 print("running main.py")
-run_cmd("%s %s --os %s --module get_plate_layout --output %s/get_plate_layout --docker_image mikischikora/qcast:v0.1 --strains %s --drugs %s"%(python_exec, main_py, operating_system, outdir, strains, drugs))
 
-# move back to the 
+# get plate layout
+plate_layout = "%s%sget_plate_layout%splate_layout_long.xlsx"%(outdir, sep, sep)
+if file_is_empty(plate_layout): 
+
+	run_cmd("%s %s --os %s --module get_plate_layout --output %s%sget_plate_layout --docker_image mikischikora/qcast:v0.1 --strains %s --drugs %s"%(python_exec, main_py, operating_system, outdir, sep, strains, drugs))
+
+# run images
+run_cmd("%s %s --os %s --module analyze_images --output %s%simage_analysis --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%sraw_images"%(python_exec, main_py, operating_system, outdir, sep, plate_layout, CurDir, sep))
+
+
+
+
+
+
+

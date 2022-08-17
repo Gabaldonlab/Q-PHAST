@@ -26,6 +26,8 @@ parser.add_argument("--docker_image", dest="docker_image", required=True, type=s
 # optional args for each module
 parser.add_argument("--strains", dest="strains", required=False, default=None, type=str, help="An excel table with the list of strains. This only has an effect if --module is 'get_plate_layout'")
 parser.add_argument("--drugs", dest="drugs", required=False, default=None, type=str, help="An excel table with the list of drugs and concentrations. This only has an effect if --module is 'get_plate_layout'")
+parser.add_argument("--plate_layout", dest="plate_layout", required=False, default=None, type=str, help="An excel table with the plate layout in long format. This should be the file 'plate_layout_long'.xlsx genertaed by the 'get_plate_layout' module. This only has an effect if --module is 'analyze_images'")
+parser.add_argument("--images", dest="images", required=False, default=None, type=str, help="A folder with the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'. This only has an effect if --module is 'analyze_images'")
 
 # parse
 opt = parser.parse_args()
@@ -98,16 +100,18 @@ def copy_file(origin_file, dest_file):
 
 # arguments of each module
 if opt.module=="get_plate_layout":
-    if opt.strains is None or opt.drugs is None: raise ValueError("For module get_plate_layout, you should provide the --strains and --drugs argument.")
+    if opt.strains is None or opt.drugs is None: raise ValueError("For module get_plate_layout, you should provide the --strains and --drugs arguments.")
     opt.strains = get_fullpath(opt.strains)
     opt.drugs = get_fullpath(opt.drugs)
     if file_is_empty(opt.strains): raise ValueError("The file provided in --strains does not exist or it is empty")
     if file_is_empty(opt.drugs): raise ValueError("The file provided in --drugs does not exist or it is empty")
 
 elif opt.module=="analyze_images":
-    check_other_args
-    make_full_paths
-    pass
+    if opt.plate_layout is None or opt.images is None: raise ValueError("For module analyze_images, you should provide the --plate_layout and --images arguments.")
+    opt.plate_layout = get_fullpath(opt.plate_layout)
+    opt.images = get_fullpath(opt.images)
+    if file_is_empty(opt.plate_layout): raise ValueError("The file provided in --plate_layout does not exist or it is empty")
+    if not os.path.isdir(opt.images): raise ValueError("The folder provided in --images does not exist")
 
 else: raise ValueError("--module should have 'get_plate_layout' or 'analyze_images'")
 
@@ -134,7 +138,7 @@ delete_folder(tmp_input_dir); make_folder(tmp_input_dir)
 # init command with general features
 docker_cmd = 'docker run --rm -it -e MODULE=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, tmp_input_dir, opt.output)
 
-# add the scripts (debug)
+# add the scripts from outside (debug)
 if opt.os in {"linux", "mac"}: CurDir = get_fullpath("/".join(__file__.split("/")[0:-1]))
 elif opt.os=="windows": CurDir = get_fullpath("\\".join(__file__.split("\\")[0:-1]))
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(CurDir, get_os_sep())
@@ -161,10 +165,8 @@ if opt.module=="get_plate_layout":
     copy_file(opt.drugs, "%s%sdrugs.xlsx"%(tmp_input_dir, get_os_sep()))
 
 elif opt.module=="analyze_images":
-
-    pass
-
-
+    copy_file(opt.plate_layout, "%s%splate_layout_long.xlsx"%(tmp_input_dir, get_os_sep()))
+    docker_cmd += ' -v "%s":/images'%opt.images
 
 # at the end add the name of the image
 docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py"'%opt.docker_image

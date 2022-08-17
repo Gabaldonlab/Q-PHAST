@@ -32,6 +32,13 @@ RUN mamba install -n main_env -y -c anaconda openpyxl=3.0.9
 RUN conda install -n main_env -c conda-forge --force-reinstall ld_impl_linux-64 # fix the packages
 RUN /workdir_app/installation/install_R_packages_main_env.R # install extra packages
 
+# install ImageJ
+RUN wget https://downloads.imagej.net/fiji/archive/20220414-1745/fiji-linux64.tar.gz
+RUN tar -xf fiji-linux64.tar.gz && rm fiji-linux64.tar.gz
+
+# give permissions
+RUN chmod -R 755 /workdir_app
+
 #### COMMENTS ####
 
 # Create this image with 'docker build -t mikischikora/qcast:v0.1 -f ./Dockerfile .'
