@@ -28,6 +28,8 @@ parser.add_argument("--strains", dest="strains", required=False, default=None, t
 parser.add_argument("--drugs", dest="drugs", required=False, default=None, type=str, help="An excel table with the list of drugs and concentrations. This only has an effect if --module is 'get_plate_layout'")
 parser.add_argument("--plate_layout", dest="plate_layout", required=False, default=None, type=str, help="An excel table with the plate layout in long format. This should be the file 'plate_layout_long'.xlsx genertaed by the 'get_plate_layout' module. This only has an effect if --module is 'analyze_images'")
 parser.add_argument("--images", dest="images", required=False, default=None, type=str, help="A folder with the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'. This only has an effect if --module is 'analyze_images'")
+parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (for debugging).")
+parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
 
 # parse
 opt = parser.parse_args()
@@ -98,6 +100,9 @@ def copy_file(origin_file, dest_file):
 
 ######  DEBUG INPUTS #########
 
+# replace
+if opt.replace is True: delete_folder(opt.output)
+
 # arguments of each module
 if opt.module=="get_plate_layout":
     if opt.strains is None or opt.drugs is None: raise ValueError("For module get_plate_layout, you should provide the --strains and --drugs arguments.")
@@ -136,7 +141,7 @@ tmp_input_dir = "%s%stmp_small_inputs"%(opt.output, get_os_sep())
 delete_folder(tmp_input_dir); make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e MODULE=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, tmp_input_dir, opt.output)
+docker_cmd = 'docker run --rm -it -e MODULE=%s -e KEEP_TMP_FILES=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, opt.keep_tmp_files, tmp_input_dir, opt.output)
 
 # add the scripts from outside (debug)
 if opt.os in {"linux", "mac"}: CurDir = get_fullpath("/".join(__file__.split("/")[0:-1]))

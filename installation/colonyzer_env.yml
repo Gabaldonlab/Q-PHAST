@@ -10,4 +10,3 @@ dependencies:
   - pandas=0.24.2
   - scipy=1.2.1
   - pillow=6.2.1
-  - opencv=4.2.0

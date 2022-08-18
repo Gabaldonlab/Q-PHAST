@@ -31,7 +31,7 @@ start_time = time.time()
 ######### TEST ENV ########
 
 # check that the pygame can be executed
-fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
+#fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
 
 # the output directory should exist
 if not os.path.isdir(OutDir): raise ValueError("You should specify the output directory by setting a volume. If you are running on linux terminal you can set '-v <output directory>:/output'")
@@ -43,7 +43,7 @@ if not os.path.isdir(OutDir): raise ValueError("You should specify the output di
 # depending on the input run one or the other pipeline
 if os.environ["MODULE"]=="get_plate_layout": fun.run_get_plate_layout("%s/strains.xlsx"%SmallInputs, "%s/drugs.xlsx"%SmallInputs, OutDir)
 
-elif os.environ["MODULE"]=="analyze_images": fun.run_analyze_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir)
+elif os.environ["MODULE"]=="analyze_images": fun.run_analyze_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir, {'True':True, 'False':False}[str(os.environ["KEEP_TMP_FILES"])])
 
 else: raise ValueError("The module is  incorrect")
 
