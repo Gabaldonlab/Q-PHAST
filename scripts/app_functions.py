@@ -11,6 +11,9 @@ from openpyxl.styles import PatternFill, Font
 from openpyxl.styles.borders import Border, Side
 import matplotlib.colors as mcolors
 import multiprocessing as multiproc
+import numpy as np
+from PIL import Image as PIL_Image
+from sklearn.metrics import auc
 
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
@@ -420,7 +423,73 @@ def get_int_as_str_two_digits(x):
     if len(x)!=2: raise ValueError("%s is invalid"%x)
     return x
 
-def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_image_names):
+def get_manual_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate):
+
+    """Gets manual coords into colonizer_coordinates_one_spot"""
+
+    # run parametryzer
+    parametryzer_std = "%s/parametryzer.std"%coordinate_obtention_dir_plate
+    run_cmd("%s/envs/colonyzer_env/bin/parametryzer > %s 2>&1"%(CondaDir, parametryzer_std), env="colonyzer_env")
+
+    # checks
+    if file_is_empty(colonizer_coordinates_one_spot): raise ValueError("%s should exist. Make sure that you clicked the spots or check %s"%(colonizer_coordinates_one_spot, parametryzer_std))
+    remove_file(parametryzer_std)
+
+
+def get_automatic_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate, latest_image, plate_batch, plate):
+
+    """Gets automatic coords into colonizer_coordinates_one_spot"""
+
+    # run colonyzer
+    colonyzer_std = "%s/colonyzer.std"%coordinate_obtention_dir_plate
+    try: 
+
+        run_cmd("colonyzer --fmt 96 --remove > %s 2>&1"%colonyzer_std, env="colonyzer_env")
+        auto_colonyzer_worked = True
+
+    except:
+
+        print_with_runtime("WARNING: Automatic spot location did not work!! You have to set manually the spots")
+        auto_colonyzer_worked = False
+        get_manual_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate)
+
+
+    # create the auto file
+    if auto_colonyzer_worked is True:
+
+        # define the coordinates of the upper left and bottom right spots
+        df_coords = get_tab_as_df_or_empty_df("%s/Output_Data/%s.out"%(coordinate_obtention_dir_plate, latest_image.rstrip(".tif"))).set_index(["Row", "Column"], drop=True)
+        automatic_coords_str = ",".join([str(int(round(pos, 0))) for pos in (df_coords.loc[1, 1].x, df_coords.loc[1, 1].y, df_coords.loc[8, 12].x, df_coords.loc[8, 12].y)])
+
+        # create the colonizer_coordinates_one_spot file as parametryzer does
+        lines_parametryzer_output = ["# misc", 
+                                     "default,96,%s,%s"%(automatic_coords_str, date.today().strftime("%Y-%m-%d")), 
+                                     "#",
+                                     "%s,96,%s"%(latest_image, automatic_coords_str)]
+
+        open(colonizer_coordinates_one_spot, "w").write("\n".join(lines_parametryzer_output)+"\n")
+
+        # show the automatic positioning of the image
+        print_with_runtime("This is the automatic location of the spots in the image...")
+        coords_image = "%s/Output_Images/%s_AREA.png"%(coordinate_obtention_dir_plate, latest_image.rstrip(".tif"))
+        coords_image_w, coords_image_h = PIL_Image.open(coords_image).size
+
+        coords_image_resized = "%s.resized.png"%coords_image
+        coords_image_resized_object = PIL_Image.open(coords_image).resize((int(coords_image_w*0.4), int(coords_image_h*0.4)))
+        coords_image_resized_w, coords_image_resized_h = coords_image_resized_object.size
+        coords_image_resized_object.save(coords_image_resized)
+
+        display_image_std = "%s/display_image.std"%coordinate_obtention_dir_plate
+        run_cmd("%s/display_image.py %s %i %i 'automatic location for %s-plate%i' > %s 2>&1"%(ScriptsDir, coords_image_resized, coords_image_resized_w, coords_image_resized_h, plate_batch, plate, display_image_std), env="colonyzer_env")
+        remove_file(display_image_std)
+
+    # clean
+    for folder in ["Output_Images", "Output_Data", "Output_Reports"]: delete_folder("%s/%s"%(coordinate_obtention_dir_plate, folder))
+    remove_file(colonyzer_std)
+
+
+
+def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_image_names, automatic_coordinates, plate_batch, plate):
 
     """Generates a 'Colonyzer.txt' file in each dest_processed_images_dir with all the coordinates."""
 
@@ -439,16 +508,20 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
         # softlink one image into coordinate_obtention_dir to get coordinates
         soft_link_files("%s/%s"%(dest_processed_images_dir, latest_image), "%s/%s"%(coordinate_obtention_dir_plate, latest_image))
 
-        # get the coordinates
+        # get to the folder
         initial_dir = os.getcwd()
         os.chdir(coordinate_obtention_dir_plate)
-        parametryzer_std = "%s/parametryzer.std"%coordinate_obtention_dir_plate
-        run_cmd("%s/envs/colonyzer_env/bin/parametryzer > %s 2>&1"%(CondaDir, parametryzer_std), env="colonyzer_env")
+
+        # get coordinates automatically
+        if automatic_coordinates is True: get_automatic_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate, latest_image, plate_batch, plate)
+
+        # use parametryzer
+        else: get_manual_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate)
+
+
+        # go back to the initial dir
         os.chdir(initial_dir)
 
-        # checks
-        if file_is_empty(colonizer_coordinates_one_spot): raise ValueError("%s should exist. Make sure that you clicked the spots or check %s"%(colonizer_coordinates_one_spot, parametryzer_std))
-        remove_file(parametryzer_std)
 
         # create a colonyzer file with all the info in dest_processed_images_dir/Colonyzer.txt
 
@@ -461,6 +534,21 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
 
         # get the coordinates
         coordinates_str = ",".join(last_line_split[2:])
+
+        # check that the coordinates make sense
+        expected_w, expected_h = PIL_Image.open("%s/%s"%(dest_processed_images_dir, latest_image)).size
+        top_left_x, top_left_y, bottom_right_x, bottom_right_y = [int(x) for x in coordinates_str.split(",")]
+        cropped_w = bottom_right_x - top_left_x
+        cropped_h = bottom_right_y - top_left_y
+
+        error_log = "Make sure that you are first selecting the upper-left spot and then the lower-right spot."
+        for dim, expected_val, cropped_val in [("width", expected_w, cropped_w), ("height", expected_h, cropped_h)]:
+
+            if cropped_val<=0: raise ValueError("The cropped image has <=0 %s. %s"%(dim, error_log))
+            if cropped_val>expected_val: raise ValueError("The %s of the cropped image is above the original one. %s"%(dim, error_log))
+            if cropped_val<=(expected_val*0.3): raise ValueError("The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s"%(dim, cropped_val, expected_val, dim, error_log))
+
+            if cropped_val<=(expected_val*0.5): print_with_runtime("WARNING: The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s. If you are sure of this you can skip this warning."%(dim, cropped_val, expected_val, dim, error_log))
 
         # write
         non_coordinates_lines = [l for l in open(colonizer_coordinates_one_spot, "r").readlines() if l.startswith("#") or not l.startswith(latest_image)]
@@ -529,51 +617,6 @@ def get_barcode_from_filename(filename):
     return "%s-%s_%s"%(plateID, d_string, t_string)
 
 
-def get_barcode_for_filenames_old(filenames_series):
-
-    """Takes a series of filenames and passes them to get_barcode_from_filename to get barcoded values. The barcode cannot exceed 11 chars, so that it is stripped accoringly by this function"""
-
-    # get barcoded items
-    barcoded_names  = filenames_series.apply(get_barcode_from_filename)
-
-    # get barcode
-    unique_barcodes = set(barcoded_names.apply(lambda x: x.split("-")[0]))
-    barcode_to_differentLengths = {b : len(b) for b in unique_barcodes if len(b)!=11}
-
-    # initialize a map between the long and the short barcode
-    oldBar_to_newBar = {x:x for x in unique_barcodes.difference(set(barcode_to_differentLengths))}
-
-    # adapt the barcodes
-    for barcode, len_barcode in barcode_to_differentLengths.items():
-
-        # if larger
-        if len_barcode>11: 
-
-            # understand if there is a common suffix or a common prefix
-            
-            # common prefic
-            if len(set([x[0:2] for x in unique_barcodes]))==1: newbarcode = barcode[len_barcode-11:]
-
-            # common suffix
-            elif len(set([x[-2:] for x in unique_barcodes]))==1: newbarcode = barcode[0:11]
-
-            else: raise ValueError("No common suffix or prefix could be found. Please specify IDs that have 11 characters or less in the image filenames")
-
-        # if smaller
-        elif len_barcode<11: newbarcode = barcode + "X"*(11-len_barcode)
-
-        # save
-        oldBar_to_newBar[barcode] = newbarcode
-
-    # check that everything was ok
-    if len(oldBar_to_newBar)!=len(set(oldBar_to_newBar.values())): 
-        print("The barcode transformation is:\n", oldBar_to_newBar)
-        raise ValueError("The barcodes were not transformed correctly")
-
-    # return
-    return barcoded_names.apply(lambda x: "%s-%s"%(oldBar_to_newBar[x.split("-")[0]], "-".join(x.split("-")[1:])))
-
-
 def get_barcode_for_filenames(filenames_series):
 
     """Takes a series of filenames and passes them to get_barcode_from_filename to get barcoded values. The barcode cannot exceed 11 chars, so that it is stripped accoringly by this function"""
@@ -584,6 +627,24 @@ def get_barcode_for_filenames(filenames_series):
     # return
     oldBar_to_newBar = {"img0":"img_fitness"}
     return barcoded_names.apply(lambda x: "%s-%s"%(oldBar_to_newBar[x.split("-")[0]], "-".join(x.split("-")[1:])))
+
+def save_df_as_tab(df, file):
+
+    """Takes a df and saves it as tab"""
+
+    file_tmp = "%s.tmp"%file
+    df.to_csv(file_tmp, sep="\t", index=False, header=True)
+    os.rename(file_tmp, file)
+
+def get_tab_as_df_or_empty_df(file):
+
+    """Gets df from file or empty df"""
+
+    nlines = len([l for l in open(file, "r").readlines() if len(l)>1])
+
+    if nlines==0: return pd.DataFrame()
+    else: return pd.read_csv(file, sep="\t")
+
 
 def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batch, plate, df_plate_layout):
 
@@ -676,9 +737,21 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     #############################################################
 
+
+    ##### RUN QFA AND SAVE #####
+
     # generate the plots with R
-    make_an_std
-    run_cmd("/workdir_app/scripts/get_fitness_measurements.R %s"%("%s/%s"%(outdir_all, outdir_name)), env="main_env")
+    fitness_measurements_std = "%s/fitness_measurements.std"%data_path
+    run_cmd("/workdir_app/scripts/get_fitness_measurements.R %s > %s 2>&1"%("%s/%s"%(outdir_all, outdir_name), fitness_measurements_std), env="main_env")
+    remove_file(fitness_measurements_std)
+
+    # save the df
+    df_fitness_measurements_file = "%s/%s/df_fitness_measurements.tab"%(outdir_all, outdir_name)
+    os.rename("%s/%s/logRegression_fits.tbl"%(outdir_all, outdir_name), df_fitness_measurements_file)
+
+    ############################
+
+    return get_tab_as_df_or_empty_df(df_fitness_measurements_file)
 
 def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout):
 
@@ -696,6 +769,10 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(images_fold
 
         ###### RUN COLONYZER TO GET IMAGE DATA ######
 
+        # clean the hidden files from images_folder
+        for f in os.listdir(images_folder):
+            if f.startswith("."): remove_file("%s/%s"%(images_folder, f))
+
         # move into the images dir
         initial_dir = os.getcwd()
         os.chdir(images_folder)
@@ -707,7 +784,7 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(images_fold
         image_names_withoutExtension = set({x.split(".")[0] for x in sorted_image_names})
 
         # run colonyzer for all parameters
-        print_with_runtime("Running colonyzer to get raw fitness data...")
+        #print_with_runtime("Running colonyzer to get raw fitness data...")
         parms = ("greenlab", "lc", "diffims")
         run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtension)
 
@@ -719,67 +796,335 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(images_fold
         ####### RUN FITTING TO GET FITNESS CALCULATIONS ########
 
         # go through each of the directories of data and generate the image analysis data
-        print_with_runtime("Running qfa to get per-spot fitness data...")
+        #print_with_runtime("Running qfa to get per-spot fitness data...")
 
         # generate the fitness df
         df_fitness_measurements = get_df_fitness_measurements_one_parm_set(outdir_all, "output_%s"%("_".join(sorted(parms))), plate_batch, plate, df_plate_layout)
 
-
-        write_integration_of_integrated_data_file
-
-        
-
-
         ########################################################
 
-        run_integration_with_plate_layout
+        ####### ADD EXTRA FIELDS #####
 
-        #./scripts/run_image_analysis_4plates_per_image.py -i ./testing/testing_inputs/images --output ./testing/testing_output -pcomb greenlab,lc,diffims --steps colonyzer,visualization,analysis,metadata_analysis --metadata_file ./testing/testing_inputs/metadata.tab
+        ##############################
 
-        #optional_args = "--n_wells %i --parm_combinations %s --steps %s"%(opt.n_wells, opt.parm_combinations, opt.steps)
-        #image_analysis_cmd = "%s -i %s -o %s %s"%(image_analysis_pipeline, plate_input_Dir, plate_output_Dir, optional_args)
+        # add fields
+        df_fitness_measurements["plate"] = plate
+        df_fitness_measurements["plate_batch"] = plate_batch
+        df_fitness_measurements["spotID"] = df_fitness_measurements.apply(lambda r: "%s_%s"%(r["Row"], r["Column"]), axis=1)
 
+        # correct the rsquare
+        def get_rsquare_to0(rsq):
+            if rsq>0: return rsq
+            else: return 0.0
+        df_fitness_measurements["rsquare"] = df_fitness_measurements.rsquare.apply(get_rsquare_to0)
 
-        # 
-        adkgjahgd
+        # get the correct DT_h
+        maxDT_h = 25.0
+        def get_DT_good_rsq(DT_h, rsq, rsq_tshd=0.9):
+            if rsq>=rsq_tshd: return DT_h
+            else: return maxDT_h
+        df_fitness_measurements["DT_h_goodR2"] = df_fitness_measurements.apply(lambda r: get_DT_good_rsq(r["DT_h"], r["rsquare"]), axis=1)
 
-        # go to the initial dir
-        #os.chdir(initial_dir)
+        # add the inverse of DT_h
+        df_fitness_measurements["inv_DT_h_goodR2"] = 1 / df_fitness_measurements.DT_h_goodR2
 
         # save and rename
+        save_df_as_tab(df_fitness_measurements, integrated_data_file)
 
 
-    ###### PREPARE DF #####
+    # return 
+    return get_tab_as_df_or_empty_df(integrated_data_file)
 
-    # load df
-    df = pd.read_csv(integrated_data_file, sep="\t")
 
-    # add fields
-    df["plate"] = plate
-    df["plate_batch"] = plate_batch
+def check_no_nans_series(x):
 
-    # correct the rsquare
-    def get_rsquare_to0(rsq):
-        if rsq>0: return rsq
-        else: return 0.0
-    df["rsquare"] = df.rsquare.apply(get_rsquare_to0)
+    """Raise value error if nans"""
 
-    # get the correct DT_h
-    maxDT_h = 25.0
-    def get_DT_good_rsq(DT_h, rsq, rsq_tshd=0.9):
-        if rsq>=rsq_tshd: return DT_h
-        else: return maxDT_h
-    df["DT_h_goodR2"] = df.apply(lambda r: get_DT_good_rsq(r["DT_h"], r["rsquare"]), axis=1)
+    if any(pd.isna(x)): raise ValueError("There can't be nans in series %s"%x)
 
-    # add the inverse of DT_h
-    df["inv_DT_h_goodR2"] = 1 / df.DT_h_goodR2
 
-    # return
-    return df
+def copy_file(origin_file, dest_file):
 
-    #######################
+    """Copy file if not done file"""
 
-def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files):
+    if file_is_empty(dest_file):
+
+        dest_file_tmp = "%s.tmp"%dest_file
+        shutil.copy(origin_file, dest_file_tmp)
+        os.rename(dest_file_tmp, dest_file)
+
+
+def get_fitness_df_with_relativeFitnessEstimates(fitness_df, fitness_estimates):
+
+    """This function adds a set of *_rel fields to fitness_df, which are, for each condition, the fitness relative to the concentration==0 spot."""
+
+    # correct the fitness estimates to avoid NaNs, 0s and infs
+    fitEstimate_to_maxNoNInf = {fe : max(fitness_df[fitness_df[fe]!=np.inf][fe]) for fe in fitness_estimates}
+
+    def get_correct_val(x, fitness_estimate):
+        
+        if x==np.inf: return fitEstimate_to_maxNoNInf[fitness_estimate]
+        elif x!=np.nan and type(x)==float: return x
+        else: raise ValueError("%s is not a valid %s"%(x, fitness_estimate))
+        
+    for fe in fitness_estimates: 
+        
+        # get the non nan and non inf vals
+        fitness_df[fe] = fitness_df[fe].apply(lambda x: get_correct_val(x, fe))
+        
+        # add a pseudocount that is equivalent to the minimum, if there are any negative values
+        if any(fitness_df[fe]<0): 
+            print_with_runtime("WARNING: There are some negative values in %s, modifying the data with a pseudocount"%fe)
+            fitness_df[fe] = fitness_df[fe] + abs(min(fitness_df[fitness_df[fe]<0][fe]))    
+
+    # define a df with the maximum growth rate (the one at concentration==0) for each combination of sampleID and assayed drugs
+    df_max_gr = fitness_df[fitness_df.concentration==0.0].set_index("sampleID_and_drug", drop=False)[fitness_estimates]
+    all_sampleID_and_drug = set(df_max_gr.index)
+
+    fitEstimate_to_sampleIDandDrug_to_maxValue = {fe : {sampleIDandDrug : df_max_gr.loc[sampleIDandDrug, fe] for sampleIDandDrug in all_sampleID_and_drug} for fe in fitness_estimates}
+
+    # add the relative fitness estimates
+    fitness_estimates_rel = ["%s_rel"%x for x in fitness_estimates]
+
+    def get_btw_0_and_1(x):
+            
+        if pd.isna(x): return 1.0
+        elif x==np.inf: return 1.0
+        elif x==-np.inf: return 0.0
+        elif x<0: raise ValueError("there can't be any negative values")
+        else: return x  
+
+    np.seterr(divide='ignore', invalid="ignore")
+    fitness_df[fitness_estimates_rel] = fitness_df.apply(lambda r: pd.Series({"%s_rel"%fe : get_btw_0_and_1(np.divide(r[fe], fitEstimate_to_sampleIDandDrug_to_maxValue[fe][r["sampleID_and_drug"]])) for fe in fitness_estimates}), axis=1)
+
+    return fitness_df
+
+def get_MIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
+
+    """This function takes a df of one single eucast measurement, and returns the Minimal Inhibitory concentration, where the relative fitness is fitness_estimate, The df should be sorted by concentration."""
+
+    # get the expected concs
+    max_expected_conc = concs_info["max_conc"]
+    first_concentration = concs_info["first_conc"]
+    expected_conc_to_previous_conc = concs_info["conc_to_previous_conc"]
+
+
+    # get the assayed concs
+    assayed_concs = set(df.concentration)
+
+    # calculate MIC
+    concentrations_less_than_mic_fraction = df[df[fitness_estimate]<(1-mic_fraction)]["concentration"]
+
+    # define a string for the warnings
+    mic_string = "sampleID=%s|fitness_estimate=%s|MIC_%.2f"%(df.sampleID.iloc[0], fitness_estimate, mic_fraction)
+
+    # define the real mic according to missing data
+
+    # when there is no mic conc
+    if len(concentrations_less_than_mic_fraction)==0:
+
+        # when the max conc has been considered and no mic is found
+        if max_expected_conc in assayed_concs: real_mic = (max_expected_conc*2)
+
+        # else we can't know were the mic is
+        else: 
+            print("WARNING: There is no MIC, but the last concentration was not assayed for %s. MIC is set to NaN"%mic_string)
+            real_mic = np.nan
+
+    # when there is one
+    else:
+
+        # calculate the mic
+        mic = min(concentrations_less_than_mic_fraction)
+
+        # calculate the concentration before the mic
+        df_conc_before_mic = df[df.concentration<mic]
+
+        # when there is no such df, just keep the mic if there is only the first assayed concentration 
+        if len(df_conc_before_mic)==0: 
+
+            # if the mic is the first concentration or the first concentration is already below 1-mic_fraction
+            if mic==first_concentration: real_mic = mic    
+            elif mic==0.0: real_mic = 0.001 # pseudocount          
+            else: 
+                print("WARNING: We cound not find MIC for %s"%mic_string)
+                real_mic = np.nan
+
+        else:
+
+            # get the known or expected concentrations
+            conc_before_mic = df_conc_before_mic.iloc[-1].concentration
+            expected_conc_before_mic = expected_conc_to_previous_conc[mic]
+
+            # if the concentration before mic is not the expected one, just not consider
+            if abs(conc_before_mic-expected_conc_before_mic)>=0.001: 
+                print("WARNING: We cound not find MIC for %s"%mic_string)
+                real_mic = np.nan
+            else: real_mic = mic
+
+    # if there is any missing 
+    if real_mic==0: raise ValueError("mic can't be 0. Check how you calculate %s"%fitness_estimate)
+
+    return real_mic
+
+def get_auc(x, y):
+
+    """Takes an x and a y and returns the area under the curve"""
+
+    return auc(x, y)
+
+
+def get_AUC_for_EUCASTreplicate(df, fitness_estimate, concs_info, concentration_estimate, min_points_to_calculate_auc=4):
+
+    """Takes a df were each row has info about a curve of a single EUCAST and returns the AUC with some corrections"""
+
+    # get the expected concs
+    max_expected_conc = concs_info["max_conc"]
+    conc0 = concs_info["zero_conc"] 
+
+    # calculate the auc if all the concentrations had a fitness of 1 (which is equal to no-drug if the fitness_estimate=1)
+    max_auc = (max_expected_conc-conc0)*1
+
+    # get the assayed concs
+    assayed_concs = set(df[concentration_estimate])
+
+    # when you lack less than min_points_to_calculate_auc curves just drop
+    if len(df)<min_points_to_calculate_auc: auc = np.nan
+
+    # when they are all 0, just return 0
+    elif sum(df[fitness_estimate]==0.0)==len(df): auc = 0.0
+
+    else:
+
+        # if the maximum growth is not measured, and the max measured is growing we discard the measurement, as it may change the results
+        if max_expected_conc not in assayed_concs and df.iloc[-1].is_growing: auc = np.nan
+
+        else:
+
+            # get the values
+            xvalues = df[concentration_estimate].values
+            yvalues = df[fitness_estimate].values
+
+            # if the initial is the first concentration, add the one
+            if conc0 not in assayed_concs:
+                xvalues = np.insert(xvalues, 0, conc0)
+                yvalues = np.insert(yvalues, 0, 1.0)
+
+            # calculate auc, relattive to the 
+            auc = get_auc(xvalues, yvalues)/max_auc
+
+
+    if auc<0.0: 
+
+        print(df[[concentration_estimate, fitness_estimate, "is_growing"]])
+        print(xvalues, yvalues)
+        print(assayed_concs, conc0)
+        raise ValueError("auc can't be 0. Check how you calculate %s"%fitness_estimate)
+
+    return auc
+
+
+
+
+def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_auc):
+
+    """Takes a fitness df and returns a df where each row is one sampleID-drug-fitness_estimate combination and there are susceptibility measurements (rAUC, MIC or initial fitness)"""
+
+    # init the df that will contain the susceptibility estimates
+    df_all = pd.DataFrame()
+
+    # go through each drug
+    for drug in sorted(set(fitness_df.drug)):
+        print_with_runtime("getting susceptibility estimates for %s"%drug)
+
+        # get the df for this drug
+        fitness_df_d = fitness_df[fitness_df.drug==drug]
+
+        # map each drug to the expected concentrations
+        sorted_concentrations = sorted(set(fitness_df_d.concentration))
+        concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
+
+        sorted_log2_concentrations = [np.log2(c + pseudocount_log2_concentration) for c in sorted_concentrations]
+        concentrations_dict_log2 = {"max_conc":max(sorted_log2_concentrations), "zero_conc":sorted_log2_concentrations[0], "first_conc":sorted_log2_concentrations[1], "conc_to_previous_conc":{c:sorted_log2_concentrations[I-1] for I,c in enumerate(sorted_log2_concentrations) if I>0}}
+
+        # filter out bad spots
+        fitness_df_d = fitness_df_d[~(fitness_df_d.bad_spot)]
+
+        # go through all the fitness estimates (also the relative ones)
+        relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
+        for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
+
+            # define a grouped df, where each index is a unique sample ID
+            grouped_df = fitness_df_d[["sampleID", "concentration", "is_growing", "log2_concentration", fitness_estimate]].sort_values(by=["sampleID", "concentration"]).groupby("sampleID")
+
+            # init a df with the MICs and AUCs for this concentration and fitness_estimate
+            df_f = pd.DataFrame()
+
+            # go through different MIC fractions
+            for mic_fraction in [0.25, 0.5, 0.75, 0.9]:
+
+                mic_field = "MIC_%i"%(mic_fraction*100)
+                df_f[mic_field] = grouped_df.apply(lambda x: get_MIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
+
+
+            # add the rAUC for log2 or not of the concentrations
+            for conc_estimate, conc_info_dict in [("concentration", concentrations_dict), ("log2_concentration", concentrations_dict_log2)]:
+
+                # get a series that map each sampleID to the AUC 
+                df_f["rAUC_%s"%conc_estimate] = grouped_df.apply(lambda x: get_AUC_for_EUCASTreplicate(x, fitness_estimate, conc_info_dict, conc_estimate, min_points_to_calculate_auc=min_points_to_calculate_auc))
+
+                print(df_f["rAUC_%s"%conc_estimate])
+
+                dkdagkgdahjgadjhg
+
+            # define the df for the initial fitness
+            df_conc0 = fitness_df_d[(fitness_df_d["concentration"]==0.0)]
+            df_f["fitness_conc0"] = df_conc0[["sampleID", fitness_estimate]].drop_duplicates().set_index("sampleID")[fitness_estimate]
+
+
+            # keep df
+            df_f = df_f.merge(fitness_df_c[["sampleID", "strain", "replicateID", "row", "column"]].set_index("sampleID").drop_duplicates(),  left_index=True, right_index=True, how="left",  validate="one_to_one")
+
+            df_f["condition"] = condition
+            df_f["fitness_estimate"] = fitness_estimate
+            df_all = df_all.append(df_f)
+
+
+    adjhgjhdgad
+
+
+    return df_all
+
+def generate_croped_image(origin_image, cropped_image, plate):
+
+    """Generates a cropped image which is a quadrant (specified by plate) of the origin_image"""
+
+    if file_is_empty(cropped_image):
+
+        # open the image
+        image_object = PIL_Image.open(origin_image)
+        w, h = image_object.size 
+
+        # map each quadrant (plate) to the coordinates to crop ((left, top, right, bottom)). These are two points (from, to). The upper-left is 0,0 and the lower-left is w,h
+        plate_to_coords = {1 : (0, 0, w/2, h/2),
+                           2 : (w/2, 0, w, h/2),
+                           3 : (0, h/2, w/2, h),
+                           4 : (w/2, h/2, w, h) 
+                           }
+          
+        # crop the image
+        cropped_image_object = image_object.crop(plate_to_coords[plate])
+
+        # checks
+        cropped_w, cropped_h = cropped_image_object.size
+        if cropped_w<(w*0.1) or cropped_h<(h*0.1): raise ValueError("The size of the cropped image from %s is invalid: %s. The original w,h size was %s"%(origin_image, cropped_image_object.size, image_object.size ))
+
+        # show the image
+        cropped_image_tmp = "%s.tif"%cropped_image
+        cropped_image_object.save(cropped_image_tmp)
+        os.rename(cropped_image_tmp, cropped_image)
+
+def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc, automatic_coordinates):
 
     """
     Runs the analyze_images module.
@@ -806,9 +1151,17 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files):
     for plate_batch in set(df_plate_layout.plate_batch):
         if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist"%plate_batch)
 
+    for d in set(df_plate_layout.drug):
+        df_d = df_plate_layout[df_plate_layout.drug==d]
+        set_strainTuples = {tuple(df_d[df_d.concentration==conc].strain) for conc in set(df_d.concentration)}
+        if len(set_strainTuples)!=1: raise ValueError("ERROR: This script expects the strains in each spot to be the same in all analyzed plates of the same drug. This did not happen for drug=%s. Check the provided plate layouts."%d)
+    
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
     make_folder(tmpdir)
+
+    # define several dirs of the final output
+    growth_curves_dir = "%s/growth_curves"%outdir; make_folder(growth_curves_dir) # a dir with a plot for each growth curve
 
     ##########################
 
@@ -859,8 +1212,6 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files):
         # sort images by date
         plate_batch_to_images[plate_batch] = sorted(plate_batch_to_images[plate_batch], key=get_yyyymmddhhmm_tuple_one_image_name)
 
-        break # debug
-
     # run
     for I, (r,p) in enumerate(inputs_fn): process_image_rotation_and_contrast(I+1, len(inputs_fn), r, p)
 
@@ -881,53 +1232,110 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files):
     for plate_batch, plate in df_plate_layout[["plate_batch", "plate"]].drop_duplicates().values:
         plateID_to_quadrantName = {1:"upper-left", 2:"upper-right", 3:"lower-left", 4:"lower-right"}
 
-        # link all the images to a working dir
+        # crop all the images (only desired quadrant) to a working dir
+        print_with_runtime('Cropping images from plate_batch %s and plate %i (%s plate).'%(plate_batch, plate, plateID_to_quadrantName[plate]))
+        
         processed_images_dir_batch = "%s/%s"%(processed_images_dir, plate_batch)
         dest_processed_images_dir = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate); make_folder(dest_processed_images_dir)
-        for f in os.listdir(processed_images_dir_batch): soft_link_files("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f))
-        
+        for f in plate_batch_to_images[plate_batch]: generate_croped_image("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f), plate)
+
         # define the coordinates dir and generate the colonyzer coordinates
-        print_with_runtime('Getting plate coordinates for plate_batch %s and plate %i (%s plate). You should mark the upper-left and lower-right spots of the desired plate, press "spacebar" and then "g" to save...'%(plate_batch, plate, plateID_to_quadrantName[plate]))
+        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate).'%(plate_batch, plate, plateID_to_quadrantName[plate]))
         coordinate_obtention_dir_plate = "%s/%s_plate%i"%(coordinate_obtention_dir, plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
-        generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, plate_batch_to_images[plate_batch])
+        generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, plate_batch_to_images[plate_batch], automatic_coordinates, plate_batch, plate)
 
         # keep dir
         inputs_fn.append((dest_processed_images_dir, plate_batch, plate))
 
-        break
-
     # go through each plate and plate set and run the fitness calculations
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
     df_fitness_measurements = pd.DataFrame()
+    df_growth_measurements_all_timepoints = pd.DataFrame()
 
     for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn): 
 
         print_with_runtime("Analyzing images for plate_batch-plate %i/%i: %s-plate%i"%(I+1, len(inputs_fn), plate_batch, plate))
+        
+        # get the fitness measurements
         df_fitness_measurements = df_fitness_measurements.append(get_df_integrated_fitness_measurements_one_plate_batch_and_plate(proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], df_plate_layout))
 
-    
-    # merge with the plate layout info
-    # all_df = all_df.merge(metadata_df, how="left", left_on=["plate", "Row", "Column"], right_on=["plate", "row", "column"], validate="many_to_one")
 
-    dakjghkhadd
+        # get the growth measurements for all time points
+        df_growth_measurements = get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/processed_all_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
+        df_growth_measurements["plate_batch"] = plate_batch
+        df_growth_measurements["plate"] = plate
+        df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.append(df_growth_measurements)
 
+        # keep the growth curves in the final output
+        copy_file("%s/%s_plate%i/output_diffims_greenlab_lc/output_plots.pdf"%(outdir_fitness_calculations, plate_batch, plate), "%s/batch_%s-plate%i.pdf"%(growth_curves_dir, plate_batch, plate))
+
+
+    # define the merging fields
+    merge_fields = ["plate_batch", "plate", "row", "column"]
+
+    # keep some fields and merge the df_growth_measurements_all_timepoints
+    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.rename(columns={"Row":"row", "Column":"column"})
+    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints[merge_fields + ['X.Offset', 'Y.Offset', 'Area', 'Trimmed', 'Threshold', 'Intensity', 'Edge.Pixels', 'redMean', 'greenMean', 'blueMean', 'redMeanBack', 'greenMeanBack', 'blueMeanBack', 'Edge.Length', 'Tile.Dimensions.X', 'Tile.Dimensions.Y', 'x', 'y', 'Diameter', 'Date.Time', 'Inoc.Time', 'Timeseries.order', 'Expt.Time', 'Growth']]
+    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="many_to_one").reset_index(drop=True)
+
+    # keep some fields and merge the df_fitness_measurements
+    df_fitness_measurements = df_fitness_measurements.rename(columns={"Row":"row", "Column":"column"})
+    df_fitness_measurements_interesting_fields = merge_fields + ['spotID', 'Inoc.Time', 'XOffset', 'YOffset', 'K', 'r', 'g', 'v', 'objval', 'd0', 'nAUC', 'nSTP', 'nr', 'nr_t', 'maxslp', 'maxslp_t', 'Gene', 'MDP', 'MDR', 'MDRMDP', 'glog_maxslp', 'DT', 'AUC', 'rsquare', 'DT_h', 'DT_h_goodR2', 'inv_DT_h_goodR2']
+    df_fitness_measurements = df_fitness_measurements[df_fitness_measurements_interesting_fields]
+    df_fitness_measurements = df_fitness_measurements.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="one_to_one").reset_index(drop=True)
+
+    # checks
+    for k in df_fitness_measurements.keys(): check_no_nans_series(df_fitness_measurements[k])
+    for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
+
+    # save the dataframe with all the timepoonts
+    save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.tab"%outdir)
 
     ########################################################################
 
-
-    #### INTEGRATE THE PLATE SETS ####
+    #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
     # run the AST calculations based on all plates
+    print_with_runtime("Getting the susceptibility measurements. Adding %s as a pseudocount to calculate log2 concentrations. Considering spots with a  nAUC<%s to be not growing. Calculations are only made on strains with at least %s concentrations..."%(pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc))
 
-    ##################################
+    # add fields to the fitness df that are necessary to run the AST calculations
+    df_fitness_measurements["replicateID"] = "r" + df_fitness_measurements.row.apply(str) + "c" + df_fitness_measurements.column.apply(str)
+    df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
+    df_fitness_measurements["sampleID_and_drug"] = df_fitness_measurements.sampleID + "_" + df_fitness_measurements.drug
+    df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
+    df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
+
+    # debugs
+    for d in set(df_plate_layout.drug):
+        expected_nsamples = len(set(df_fitness_measurements[(df_fitness_measurements.drug==d)].sampleID))
+        if sum((df_fitness_measurements.drug==d) & (df_fitness_measurements.concentration==0.0))!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
+
+    # init variables
+    df_susceptibility = pd.DataFrame()
+    fitness_estimates  = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
+
+    # get the fitness df with relative values (for each condition, the fitness relative to the concentration==0), and save these measurements
+    df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
+
+    # save the fitness df
+    save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
+
+    # get the susceptibility df for each sampleID
+    susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc)
+
+    # save the susceptibility df
+    save_df_as_tab(susceptibility_df, "%s/susceptibility_measurements.tab"%outdir)
+
+    # generate a reduced, simple, susceptibility_df
+    print(susceptibility_df, susceptibility_df.keys())
+
+    adgjdahg
+
+
+
+    ############################################################
     
-    jhgadjhgdaad
-
-
     ###### CLEAN #####
-
-    # keep only the important folders in outdir
-    jadhgjhagjdagdahg
 
     # clean, unless specified otherwise
     if keep_tmp_files is False: delete_folder(tmpdir)

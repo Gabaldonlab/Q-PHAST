@@ -21,7 +21,6 @@ RUN conda install -y -c conda-forge mamba
 SHELL ["conda", "run", "-n", "base", "/bin/bash", "-e", "-c"] # run from base env
 RUN mamba env create --file ./installation/main_env.yml --name main_env
 SHELL ["conda", "run", "-n", "main_env", "/bin/bash", "-e", "-c"] # run from base env
-RUN mamba install -n main_env -y -c anaconda openpyxl=3.0.9 
 RUN conda install -n main_env -c conda-forge --force-reinstall ld_impl_linux-64 # fix the packages
 RUN /workdir_app/installation/install_R_packages_main_env.R # install extra packages
 

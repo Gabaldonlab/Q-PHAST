@@ -19,6 +19,8 @@ dependencies:
   - r-argparser=0.6
   - r-deoptim=2.2_6
   - r-getopt=1.20.3
+  - scikit-learn=0.24.1
+  - openpyxl=3.0.9
 
 
 

@@ -31,6 +31,10 @@ parser.add_argument("--images", dest="images", required=False, default=None, typ
 parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (for debugging).")
 parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
 
+parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures. This only has an effect if --module is 'analyze_images'")
+parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.5, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field. This only has an effect if --module is 'analyze_images'")
+parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures. This only has an effect if --module is 'analyze_images'")
+
 # parse
 opt = parser.parse_args()
 
@@ -126,7 +130,6 @@ if not opt.os in {"linux", "mac", "windows"}: raise ValueError("--os should have
 # check that the docker image can be run
 print("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
 run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
-print("The docker image can be run.")
 
 #############################
 
@@ -141,7 +144,7 @@ tmp_input_dir = "%s%stmp_small_inputs"%(opt.output, get_os_sep())
 delete_folder(tmp_input_dir); make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e MODULE=%s -e KEEP_TMP_FILES=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, opt.keep_tmp_files, tmp_input_dir, opt.output)
+docker_cmd = 'docker run --rm -it -e MODULE=%s -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -v "%s":/small_inputs -v "%s":/output'%(opt.module, opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, tmp_input_dir, opt.output)
 
 # add the scripts from outside (debug)
 if opt.os in {"linux", "mac"}: CurDir = get_fullpath("/".join(__file__.split("/")[0:-1]))
