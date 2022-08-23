@@ -13,7 +13,11 @@ import matplotlib.colors as mcolors
 import multiprocessing as multiproc
 import numpy as np
 from PIL import Image as PIL_Image
-from sklearn.metrics import auc
+from PIL import ImageEnhance
+import PIL
+from sklearn.metrics import auc as sklearn_auc
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
@@ -385,6 +389,40 @@ def process_image_rotation_and_contrast(Iimage, nimages, raw_image, processed_im
         os.rename(processed_image_tmp, processed_image)
 
 
+
+def process_image_rotation_and_contrast_PIL(Iimage, nimages, raw_image, processed_image):
+
+    """Generates a processed image based on raw image that has enhanced contrast and left rotation. This is like process_image_rotation_and_contrast (this is what we originally did) but with PIL. This does not work as well as ImageJ."""
+
+    # log
+    image_short_name = "<images>/%s/%s"%(get_dir(raw_image).split("/")[-1], get_file(raw_image))
+    print_with_runtime("Improving contrast and rotating image %i/%i: %s"%(Iimage, nimages, image_short_name))
+
+    if file_is_empty(processed_image):
+
+        # define tmp files
+        processed_image_tmp = "%s.tmp.%s"%(processed_image, processed_image.split(".")[-1]); remove_file(processed_image_tmp)
+
+        # load image
+        image_object = PIL_Image.open(raw_image)
+
+        # rotate 90 deg counter clockwise
+        image_object = image_object.rotate(90, PIL.Image.NEAREST, expand = 1)
+
+        # enhance contrast (saturated=0.3)
+
+        #image brightness enhancer
+        enhancer = ImageEnhance.Contrast(image_object)
+        image_object_processed = enhancer.enhance(10)
+
+        # save
+        image_object_processed.save(processed_image_tmp)
+        os.rename(processed_image_tmp, processed_image)
+
+        # keep
+        os.rename(processed_image_tmp, processed_image)
+
+
 def get_yyyymmddhhmm_tuple_one_image_name(filename):
 
     """Returns a tuple with the yyyy, mm, dd, hh, mm for one image name"""
@@ -504,9 +542,17 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
 
         # clean
         remove_file(colonizer_coordinates_one_spot)
+        remove_file("%s/%s"%(coordinate_obtention_dir_plate, latest_image))
 
         # softlink one image into coordinate_obtention_dir to get coordinates
-        soft_link_files("%s/%s"%(dest_processed_images_dir, latest_image), "%s/%s"%(coordinate_obtention_dir_plate, latest_image))
+        #soft_link_files("%s/%s"%(dest_processed_images_dir, latest_image), "%s/%s"%(coordinate_obtention_dir_plate, latest_image))
+
+        # move one donwsampled image to coordinate_obtention_dir_plate
+        image_object = PIL_Image.open("%s/%s"%(dest_processed_images_dir, latest_image))
+        original_w,  original_h = image_object.size
+        factor_resize = 0.2
+        image_object.resize((int(original_w*factor_resize), int(original_h*factor_resize))).save("%s/%s"%(coordinate_obtention_dir_plate, latest_image), quality=20, optimize=True) # optimize=True
+        downsized_w, donwsized_h = PIL_Image.open("%s/%s"%(coordinate_obtention_dir_plate, latest_image)).size
 
         # get to the folder
         initial_dir = os.getcwd()
@@ -518,10 +564,8 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
         # use parametryzer
         else: get_manual_coords(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate)
 
-
         # go back to the initial dir
         os.chdir(initial_dir)
-
 
         # create a colonyzer file with all the info in dest_processed_images_dir/Colonyzer.txt
 
@@ -534,6 +578,9 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
 
         # get the coordinates
         coordinates_str = ",".join(last_line_split[2:])
+
+        # modify the coordinates to take into account that the coordinates image was donwsized by factor_resize
+        coordinates_str = ",".join([str(int(int(x)*(1/factor_resize))) for x in coordinates_str.split(",")])
 
         # check that the coordinates make sense
         expected_w, expected_h = PIL_Image.open("%s/%s"%(dest_processed_images_dir, latest_image)).size
@@ -908,7 +955,6 @@ def get_MIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
     first_concentration = concs_info["first_conc"]
     expected_conc_to_previous_conc = concs_info["conc_to_previous_conc"]
 
-
     # get the assayed concs
     assayed_concs = set(df.concentration)
 
@@ -971,7 +1017,7 @@ def get_auc(x, y):
 
     """Takes an x and a y and returns the area under the curve"""
 
-    return auc(x, y)
+    return sklearn_auc(x, y)
 
 
 def get_AUC_for_EUCASTreplicate(df, fitness_estimate, concs_info, concentration_estimate, min_points_to_calculate_auc=4):
@@ -990,6 +1036,7 @@ def get_AUC_for_EUCASTreplicate(df, fitness_estimate, concs_info, concentration_
 
     # when you lack less than min_points_to_calculate_auc curves just drop
     if len(df)<min_points_to_calculate_auc: auc = np.nan
+
 
     # when they are all 0, just return 0
     elif sum(df[fitness_estimate]==0.0)==len(df): auc = 0.0
@@ -1024,76 +1071,78 @@ def get_AUC_for_EUCASTreplicate(df, fitness_estimate, concs_info, concentration_
     return auc
 
 
-
-
-def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_auc):
+def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_auc, filename):
 
     """Takes a fitness df and returns a df where each row is one sampleID-drug-fitness_estimate combination and there are susceptibility measurements (rAUC, MIC or initial fitness)"""
 
-    # init the df that will contain the susceptibility estimates
-    df_all = pd.DataFrame()
+    if file_is_empty(filename):
 
-    # go through each drug
-    for drug in sorted(set(fitness_df.drug)):
-        print_with_runtime("getting susceptibility estimates for %s"%drug)
+        # init the df that will contain the susceptibility estimates
+        df_all = pd.DataFrame()
 
-        # get the df for this drug
-        fitness_df_d = fitness_df[fitness_df.drug==drug]
+        # go through each drug
+        for drug in sorted(set(fitness_df.drug)):
+            print_with_runtime("getting susceptibility estimates for %s"%drug)
 
-        # map each drug to the expected concentrations
-        sorted_concentrations = sorted(set(fitness_df_d.concentration))
-        concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
+            # get the df for this drug
+            fitness_df_d = fitness_df[fitness_df.drug==drug]
 
-        sorted_log2_concentrations = [np.log2(c + pseudocount_log2_concentration) for c in sorted_concentrations]
-        concentrations_dict_log2 = {"max_conc":max(sorted_log2_concentrations), "zero_conc":sorted_log2_concentrations[0], "first_conc":sorted_log2_concentrations[1], "conc_to_previous_conc":{c:sorted_log2_concentrations[I-1] for I,c in enumerate(sorted_log2_concentrations) if I>0}}
+            # map each drug to the expected concentrations
+            sorted_concentrations = sorted(set(fitness_df_d.concentration))
+            concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
 
-        # filter out bad spots
-        fitness_df_d = fitness_df_d[~(fitness_df_d.bad_spot)]
+            sorted_log2_concentrations = [np.log2(c + pseudocount_log2_concentration) for c in sorted_concentrations]
+            concentrations_dict_log2 = {"max_conc":max(sorted_log2_concentrations), "zero_conc":sorted_log2_concentrations[0], "first_conc":sorted_log2_concentrations[1], "conc_to_previous_conc":{c:sorted_log2_concentrations[I-1] for I,c in enumerate(sorted_log2_concentrations) if I>0}}
 
-        # go through all the fitness estimates (also the relative ones)
-        relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
-        for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
+            # filter out bad spots
+            fitness_df_d = fitness_df_d[~(fitness_df_d.bad_spot)]
 
-            # define a grouped df, where each index is a unique sample ID
-            grouped_df = fitness_df_d[["sampleID", "concentration", "is_growing", "log2_concentration", fitness_estimate]].sort_values(by=["sampleID", "concentration"]).groupby("sampleID")
+            # go through all the fitness estimates (also the relative ones)
+            relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
+            for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
 
-            # init a df with the MICs and AUCs for this concentration and fitness_estimate
-            df_f = pd.DataFrame()
+                # define a grouped df, where each index is a unique sample ID
+                grouped_df = fitness_df_d[["sampleID", "concentration", "is_growing", "log2_concentration", fitness_estimate]].sort_values(by=["sampleID", "concentration"]).groupby("sampleID")
 
-            # go through different MIC fractions
-            for mic_fraction in [0.25, 0.5, 0.75, 0.9]:
+                # init a df with the MICs and AUCs for this concentration and fitness_estimate
+                df_f = pd.DataFrame()
 
-                mic_field = "MIC_%i"%(mic_fraction*100)
-                df_f[mic_field] = grouped_df.apply(lambda x: get_MIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
+                # add MIC (only for relative fitness estimates)
+                if fitness_estimate in relative_fitness_estimates:
 
+                    for mic_fraction in [0.25, 0.5, 0.75, 0.9]:
 
-            # add the rAUC for log2 or not of the concentrations
-            for conc_estimate, conc_info_dict in [("concentration", concentrations_dict), ("log2_concentration", concentrations_dict_log2)]:
-
-                # get a series that map each sampleID to the AUC 
-                df_f["rAUC_%s"%conc_estimate] = grouped_df.apply(lambda x: get_AUC_for_EUCASTreplicate(x, fitness_estimate, conc_info_dict, conc_estimate, min_points_to_calculate_auc=min_points_to_calculate_auc))
-
-                print(df_f["rAUC_%s"%conc_estimate])
-
-                dkdagkgdahjgadjhg
-
-            # define the df for the initial fitness
-            df_conc0 = fitness_df_d[(fitness_df_d["concentration"]==0.0)]
-            df_f["fitness_conc0"] = df_conc0[["sampleID", fitness_estimate]].drop_duplicates().set_index("sampleID")[fitness_estimate]
+                        mic_field = "MIC_%i"%(mic_fraction*100)
+                        df_f[mic_field] = grouped_df.apply(lambda x: get_MIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
 
 
-            # keep df
-            df_f = df_f.merge(fitness_df_c[["sampleID", "strain", "replicateID", "row", "column"]].set_index("sampleID").drop_duplicates(),  left_index=True, right_index=True, how="left",  validate="one_to_one")
+                # add the rAUC for log2 or not of the concentrations
+                for conc_estimate, conc_info_dict in [("concentration", concentrations_dict), ("log2_concentration", concentrations_dict_log2)]:
 
-            df_f["condition"] = condition
-            df_f["fitness_estimate"] = fitness_estimate
-            df_all = df_all.append(df_f)
+                    # get a series that map each sampleID to the AUC 
+                    df_f["rAUC_%s"%conc_estimate] = grouped_df.apply(lambda x: get_AUC_for_EUCASTreplicate(x, fitness_estimate, conc_info_dict, conc_estimate, min_points_to_calculate_auc=min_points_to_calculate_auc))
 
+                # define the df for the initial fitness
+                df_conc0 = fitness_df_d[(fitness_df_d["concentration"]==0.0)]
+                df_f["fitness_conc0"] = df_conc0[["sampleID", fitness_estimate]].drop_duplicates().set_index("sampleID")[fitness_estimate]
 
-    adjhgjhdgad
+                # define whether the initial fitness is growing
+                df_f["conc0_is_growing"] = df_conc0[["sampleID", 'is_growing']].drop_duplicates().set_index("sampleID")['is_growing']
 
+                # keep df
+                df_f = df_f.merge(fitness_df_d[["sampleID", "strain", "replicateID", "row", "column"]].set_index("sampleID").drop_duplicates(),  left_index=True, right_index=True, how="left",  validate="one_to_one")
 
-    return df_all
+                df_f["drug"] = drug
+                df_f["fitness_estimate"] = fitness_estimate
+                df_all = df_all.append(df_f)
+
+        # checks 
+        for k in set(df_all.keys()).difference({"MIC_25", "MIC_50", "MIC_75", "MIC_90", "rAUC_concentration", "rAUC_log2_concentration"}): check_no_nans_series(df_all[k])
+
+        # save
+        save_df_as_tab(df_all, filename)
+
+    return get_tab_as_df_or_empty_df(filename)
 
 def generate_croped_image(origin_image, cropped_image, plate):
 
@@ -1123,6 +1172,177 @@ def generate_croped_image(origin_image, cropped_image, plate):
         cropped_image_tmp = "%s.tif"%cropped_image
         cropped_image_object.save(cropped_image_tmp)
         os.rename(cropped_image_tmp, cropped_image)
+
+def get_clean_float_value(x):
+
+    """Gets a clean float value"""
+
+    # ints
+    if int(x)==x: return int(x)
+
+    # small floats
+    elif len(str(x).split(".")[1])==1: return x
+
+    # large floats
+    elif len(str(x).split(".")[1])>=2: return round(x, 2)
+
+    else: raise ValueError("unconsidered x: %s"%x)
+
+
+
+def get_row_simple_susceptibility_df_one_strain_and_drug(df):
+
+    """Gets a row of a susceptibility df for one drug and strain"""
+
+    # init dict
+    data_dict = {"drug":df.drug.iloc[0], "strain":df.strain.iloc[0]}
+
+    # debug
+    if len(df)!=len(set(df.replicateID)): raise ValueError("replicateIDs should be unique")
+
+    # go through different fields
+    for field_name, field in [("MIC50", "MIC_50"), ("rAUC", "rAUC_concentration")]:
+
+        # get the no nan vals
+        all_vals = sorted(df[(~pd.isna(df[field])) & (df.conc0_is_growing==True)][field])
+
+        # round
+        all_vals = [get_clean_float_value(float(x)) for x in all_vals]
+
+        # get the range of all replicates and the median
+        if len(all_vals)>0: 
+            data_dict["median_%s"%field_name] = get_clean_float_value(np.median(all_vals))
+            data_dict["range_%s"%field_name] = "%s-%s"%(min(all_vals), max(all_vals))
+
+        else: 
+            data_dict["median_%s"%field_name] = np.nan
+            data_dict["range_%s"%field_name] = "no_data"
+
+        # get the number of replicates
+        data_dict["replicates_%s"%field_name] = len(all_vals)
+
+    return pd.Series(data_dict)
+
+def get_plate_quadrant(r):
+
+    """Takes a row and col and returns the quadrant 1, 2, 3, 4"""
+
+    if r.column in set(range(1,7)):
+        if r.row in set(range(1,5)): quadrant = 1
+        elif r.row in set(range(5,9)): quadrant = 3
+
+    elif r.column in set(range(7,13)):
+        if r.row in set(range(1,5)): quadrant = 2
+        elif r.row in set(range(5,9)): quadrant = 4
+
+    return quadrant
+
+
+def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing):
+
+    """Plots, for each drug and fitness estimate, the growith curves """
+
+    # make outdir
+    make_folder(plots_dir_all)
+
+    # filter dfs
+    df_fitness_measurements = cp.deepcopy(df_fitness_measurements[~(df_fitness_measurements.bad_spot)])
+    susceptibility_df = cp.deepcopy(susceptibility_df)
+
+    # define the quadrant in the plate
+    df_fitness_measurements["plate_quadrant"] = df_fitness_measurements.apply(get_plate_quadrant, axis=1)   
+
+    # define the descriptions
+    fe_to_description = {"K" : "Parameter of a generalised logistic model that is fit to the data. Maximum predicted cell density",
+                         "r": "Generalised logistic model rate parameter",
+                         "nAUC": "Numerical Area Under Curve. This is a model-free fitness estimate.",
+                         "nr": " Numerical estimate of intrinsic growth rate. Growth rate estimated by fitting smoothing function to log of data, calculating numerical slope estimate across range of data and selecting the maximum estimate (should occur during exponential phase)",
+                         "nr_t": "Time at which maximum slope of log observations occurs",
+                         "maxslp": "Numerical estimate of maximum slope of growth curve.",
+                         "maxslp_t": "Time at which maximum slope of observations occurs",
+                         "MDR": "Maximum Doubling Rate",
+                         "MDP": "Maximum Doubling Potential",
+                         "DT": "Doubling Time. Estimated from the fit parms at t0. May be biased if there is lag phase",
+                         "AUC": "Area Under Curve (from model fit)",
+                         "MDRMDP": "Addinall et al. style fitness",
+                         "DT_h": "max DT in hours. This is a numerical estimate from data",
+                         "DT_h_goodR2": "max DT in hours. This is a numerical estimate from data, only considering fits with r2>0.9",
+                         "rsquare": "rsquare between the fit and the data"}
+
+    # make one plot for each drug and fitness_estimate
+    for drug in sorted(set(susceptibility_df.drug)):
+
+        relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
+        for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
+            print_with_runtime("plotting the growth curves for %s-%s"%(drug, fitness_estimate))
+
+            # define filename
+            plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
+            filename = "%s/%s.pdf"%(plots_dir, fitness_estimate)
+
+            if file_is_empty(filename):
+
+                # get dfs
+                df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug)].set_index("strain")
+                df_suc = susceptibility_df[(susceptibility_df.drug==drug) & (susceptibility_df.fitness_estimate==fitness_estimate)].set_index("strain")
+
+                # add the conc0_is_growing
+                if len(df_suc)!=len(set(df_suc.replicateID)): raise ValueError("replicateID should be unique")
+                repID_to_is_growing_conc0 = dict(df_suc.set_index("replicateID").conc0_is_growing)
+                df_fit["conc0_is_growing"] = df_fit.replicateID.apply(lambda repID: repID_to_is_growing_conc0[repID])
+
+                # init figure as a 4 rows x 6 cols
+                nrows = 4
+                ncols = 6
+                fig = plt.figure(figsize=(ncols*4, nrows*2))
+
+                # add subplots
+                for Is, strain in enumerate(sorted(set(susceptibility_df.strain))):
+
+                    # get the subplot
+                    ax = plt.subplot(nrows, ncols, Is+1)
+
+                    # define the dfs
+                    df_suc_s = df_suc.loc[{strain}]
+                    df_plot = df_fit.loc[{strain}]
+
+                    # go through each quadrant and add plot
+                    quadrant_to_color = {1:"red", 2:"blue", 3:"black", 4:"gray"}
+
+                    bool_to_dash = {True: (1,0), False: (1,1)} # solid, dashed
+                    repID_to_dash = dict(df_plot[["replicateID", "conc0_is_growing"]].drop_duplicates().set_index("replicateID").conc0_is_growing.map(bool_to_dash))
+
+                    ax = sns.lineplot(x="log2_concentration", y=fitness_estimate, data=df_plot, hue="replicateID", style="replicateID", palette="tab10", markers=True, dashes=[repID_to_dash[x] for x in pd.unique(df_plot.replicateID)])
+
+                    # remove legend
+                    #ax.get_legend().remove()
+                    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+                    # add line
+                    for y in [0, 0.5, 1]: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
+
+                    # define description
+                    if fitness_estimate.endswith("_rel"): desc = fe_to_description[fitness_estimate.split("_rel")[0]]
+                    else: desc = fe_to_description[fitness_estimate]
+
+                    description = "%s: %s"%(fitness_estimate, desc)
+                    if fitness_estimate.endswith("_rel"): description += " (relative to concentration==0)"
+                    description += "\nDashed lines show replicates with no growth at concentration==0 (nAUC<%.2f), ignored in susceptibility_measurements_simple.tab"%min_nAUC_to_beConsideredGrowing
+
+                    # add axes
+                    if Is==2: ax.set_title("%s\n\n%s"%(description, strain))
+                    else: ax.set_title(strain)  
+                    ax.set_xlabel("log2([%s])"%drug)
+
+                # adjust
+                plt.subplots_adjust(wspace=0.9, hspace=0.7)
+
+                # save
+                filename_tmp = "%s.tmp.pdf"%filename
+                fig.savefig(filename_tmp, bbox_inches='tight')
+                plt.close(fig)
+                os.rename(filename_tmp, filename)
+
 
 def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc, automatic_coordinates):
 
@@ -1226,9 +1446,7 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     # define a folder that will contain the linked images for each individual processing
     processed_images_dir_each_plate = "%s/processed_images_each_plate"%tmpdir; make_folder(processed_images_dir_each_plate)
 
-    # go through each plate in each plate set and define the coordinates of the plates manually, using the latest timepoint for each plate
-    coordinate_obtention_dir = "%s/colonyzer_coordinates"%tmpdir; make_folder(coordinate_obtention_dir)
-
+    # crop the images
     for plate_batch, plate in df_plate_layout[["plate_batch", "plate"]].drop_duplicates().values:
         plateID_to_quadrantName = {1:"upper-left", 2:"upper-right", 3:"lower-left", 4:"lower-right"}
 
@@ -1239,13 +1457,17 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
         dest_processed_images_dir = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate); make_folder(dest_processed_images_dir)
         for f in plate_batch_to_images[plate_batch]: generate_croped_image("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f), plate)
 
-        # define the coordinates dir and generate the colonyzer coordinates
-        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate).'%(plate_batch, plate, plateID_to_quadrantName[plate]))
+        # keep dirs
+        inputs_fn.append((dest_processed_images_dir, plate_batch, plate))
+
+    # go through each plate in each plate set and define the coordinates of the plates manually, using the latest timepoint for each plate
+    coordinate_obtention_dir = "%s/colonyzer_coordinates"%tmpdir; make_folder(coordinate_obtention_dir)
+
+    for I,(dest_processed_images_dir, plate_batch, plate) in enumerate(inputs_fn):
+
+        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate) %i/%i. Click on the upper-left and lower-right spots, then "spacebar" and "g" to save...'%(plate_batch, plate, plateID_to_quadrantName[plate], I+1, len(inputs_fn)))
         coordinate_obtention_dir_plate = "%s/%s_plate%i"%(coordinate_obtention_dir, plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
         generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, plate_batch_to_images[plate_batch], automatic_coordinates, plate_batch, plate)
-
-        # keep dir
-        inputs_fn.append((dest_processed_images_dir, plate_batch, plate))
 
     # go through each plate and plate set and run the fitness calculations
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
@@ -1314,26 +1536,29 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     df_susceptibility = pd.DataFrame()
     fitness_estimates  = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
 
-    # get the fitness df with relative values (for each condition, the fitness relative to the concentration==0), and save these measurements
+    # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
     df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
     # save the fitness df
     save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
 
     # get the susceptibility df for each sampleID
-    susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc)
-
-    # save the susceptibility df
-    save_df_as_tab(susceptibility_df, "%s/susceptibility_measurements.tab"%outdir)
+    susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
     # generate a reduced, simple, susceptibility_df
-    print(susceptibility_df, susceptibility_df.keys())
+    simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
 
-    adgjdahg
-
-
+    save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.tab"%outdir)
+    simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%outdir, index=False)
 
     ############################################################
+
+    ######### MAKE PLOTS ##########
+
+    # growth at different drugs
+    plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, "%s/drug_vs_fitness"%outdir, fitness_estimates, min_nAUC_to_beConsideredGrowing)
+
+    ###############################
     
     ###### CLEAN #####
 
