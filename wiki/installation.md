@@ -4,7 +4,7 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 ## Linux installation
 
-- Get the main wrapper script from [here](https://github.com/Gabaldonlab/qCAST/blob/main/main.py). To download it click on 'Raw', then right click on 'Save as...' and save as `main.py`.
+- Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
 
 - Install docker, which is necessary to run the docker image. You can [find here](https://docs.docker.com/engine/install/) the installation information. Note that to run docker you need to have root permissions.
 
@@ -15,7 +15,7 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 ## Mac installation
 
-- Get the main wrapper script from [here](https://github.com/Gabaldonlab/qCAST/blob/main/main.py). To download it click on 'Raw', then right click on 'Save as...' and save as `main.py`.
+- Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
 
 - Install docker, which is necessary to run the docker image. You can [find here](https://docs.docker.com/engine/install/) the installation information. 'Docker Desktop' is a good option. Note that to run docker you need to have root permissions.
 
@@ -28,7 +28,7 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 ## Windows installation
 
-- Get the main wrapper script from [here](https://github.com/Gabaldonlab/qCAST/blob/main/main.py). To download it click on 'Raw', then right click on 'Save as...' and save as `main.py`.
+- Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
 
 - Install python 3 [here](https://www.python.org/downloads/windows/), which is necessary to execute the main wrapper script For windows you can download it from [here](https://www.python.org/downloads/windows/).
 
