@@ -32,7 +32,9 @@ start_time = time.time()
 
 # check that the pygame can be executed
 fun.print_with_runtime("Checking that pygame (a GUI library used here) works...")
-fun.run_cmd("%s/pygame_example_script.py"%ScriptsDir, env="colonyzer_env")
+pygame_std = "/output/pygame_std.txt"
+fun.run_cmd("%s/pygame_example_script.py > %s 2>&1"%(ScriptsDir, pygame_std), env="colonyzer_env")
+fun.remove_file(pygame_std)
 
 # the output directory should exist
 if not os.path.isdir(OutDir): raise ValueError("You should specify the output directory by setting a volume. If you are running on linux terminal you can set '-v <output directory>:/output'")

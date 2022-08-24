@@ -219,6 +219,15 @@ def run_get_plate_layout(strains_excel, drugs_excel, outdir):
     if len(df_drugs)!=len(df_drugs[["plate_batch", "plate"]].drop_duplicates()): raise ValueError("The combination of plate_batch and plate should be unique")
     if len(df_drugs)!=len(df_drugs[["drug", "concentration"]].drop_duplicates()): raise ValueError("The combination of drug and concentration should be unique")
 
+    for strain in set(df_strains.strain):
+        if " " in strain: raise ValueError("The strain names should not have spaces. '%s' is incorrect"%strain)
+
+    for k in df_drugs.keys():
+        if any(pd.isna(df_drugs[k])): raise ValueError("The drugs table should be a perfect rectangle. Column %s has spaces"%k)
+
+    for k in df_strains.keys():
+        if any(pd.isna(df_strains[k])): raise ValueError("The strains table should be a perfect rectangle. Column %s has spaces"%k)
+
     df_drugs["concentration"] = df_drugs["concentration"].apply(lambda x: str(x).replace(",", ".")) # format as floats the concentration
     for f, function_format in [("plate_batch", str), ("plate", int), ("drug", str), ("concentration", float)]: 
         try: df_drugs[f] = df_drugs[f].apply(function_format)

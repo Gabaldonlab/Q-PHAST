@@ -78,6 +78,10 @@ def make_folder(f):
     if not os.path.isdir(f): os.mkdir(f)
 
 
+def remove_file(f):
+
+    if os.path.isfile(f): os.unlink(f)
+
 def delete_folder(f):
 
     if os.path.isdir(f): shutil.rmtree(f)
@@ -177,11 +181,19 @@ elif opt.module=="analyze_images":
     docker_cmd += ' -v "%s":/images'%opt.images
 
 # at the end add the name of the image
-docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py"'%opt.docker_image
+docker_stderr = "%s%sdocker_stderr.txt"%(opt.output, get_os_sep())
+docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py 2>/output/docker_stderr.txt"'%(opt.docker_image)
 
 # run
 print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
-run_cmd(docker_cmd)
+
+try: run_cmd(docker_cmd)
+except: 
+    print("\n\nERROR: The run of the pipeline failed. This is the error log:\n---\n%s\n---\nExiting with code 1!"%("".join(open(docker_stderr, "r").readlines())))
+    sys.exit(1)
+
+# clean
+remove_file(docker_stderr)
 delete_folder(tmp_input_dir) # clean
 print("main.py %s worked successfully!"%opt.module)
 
