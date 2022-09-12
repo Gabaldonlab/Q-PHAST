@@ -219,6 +219,8 @@ def run_get_plate_layout(strains_excel, drugs_excel, outdir):
     if len(df_drugs)!=len(df_drugs[["plate_batch", "plate"]].drop_duplicates()): raise ValueError("The combination of plate_batch and plate should be unique")
     if len(df_drugs)!=len(df_drugs[["drug", "concentration"]].drop_duplicates()): raise ValueError("The combination of drug and concentration should be unique")
 
+
+    df_strains["strain"] = df_strains.strain.apply(lambda s: s.rstrip())    
     for strain in set(df_strains.strain):
         if " " in strain: raise ValueError("The strain names should not have spaces. '%s' is incorrect"%strain)
 
