@@ -8,4 +8,4 @@ This is a pipeline to analyze images and obtain AST measurements. To use it you 
 
 - Interpret the output with [this information](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/output.md).
 
-If you have trouble using this pipeline you can [check the FAQs](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/faqs.md) and/or contact us by [opening a new issue](https://github.com/Gabaldonlab/qCAST/issues).
+If you have trouble using this pipeline you can [check the FAQs](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/faqs.md) and/or contact us by [opening a new issue](https://github.com/Gabaldonlab/qCAST/issues). Make sure that you paste the error log in the issue descrption.

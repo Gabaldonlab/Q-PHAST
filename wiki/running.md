@@ -48,7 +48,7 @@ Follow these steps to get the antifungal susceptibility measurements:
       
       - min concentrations rAUC: This is an integer that indicates the minimum number of concentrations required to calculate rAUC. Note that, when using the 'bad_spot' field, you may get some concentration-vs-growth curves with few points (resulting in poor rAUC calculations). This parameter allows you to set a minimum number of concentrations to get robust rAUC calculations. rAUC will not be calculated on replicates with less points.
 
-    - Once you have set the parameters you can click on 'Run module' to analyze the images. The folder `output_analyze_images` will contain all the calculations.
+    - Once you have set the parameters you can click on 'Run module' to analyze the images. Follow the log printed in the terminal to understand what is happening. The folder `output_analyze_images` will contain all the calculations.
 
 ## Extra comments
 
@@ -61,3 +61,5 @@ Follow these steps to get the antifungal susceptibility measurements:
 - If you are running on Windows you also need to run the XLauch application (with all default parameters) BEFORE running this pipeline.
 
 - Note that in this example we only used a subset of 5 images (to ease testing), which would be insufficient to get accurate measurenents.
+
+- You can also run the `main.py` in a non-interactive manner. To do so you should provide all the arguments (output folder, docker image ...) through the command line. Type `python3 main.py -h` to understand how to use this script. Note that, if you provide any argument it runs in a non-interactive manner.

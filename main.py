@@ -210,6 +210,13 @@ def generate_replace_window():
 
     window.mainloop()
 
+def get_last_part_of_string(x, max_size=15):
+
+    """Gets a string and return the last part of it"""
+
+    if len(x)>max_size: return "...%s"%(x[-max_size:])
+    else: return x
+
 def generate_get_plate_layout_window():
 
     """Generates the window of get plate layout"""
@@ -230,7 +237,7 @@ def generate_get_plate_layout_window():
     tk.Label(window, text='1) select the strains excel:', font=('Arial bold',15)).pack(side=tk.TOP)
     def define_strains(): 
         opt.strains = askopenfilename(filetypes=[("All files", "*.*")])
-        strains_button["text"] = "...%s"%(opt.strains[-15:])
+        strains_button["text"] = get_last_part_of_string(opt.strains)
 
     strains_button = tk.Button(window, text="Browse files", padx=15, pady=15, font=('Arial bold',13), command=define_strains)
     strains_button.pack(side=tk.TOP, expand=True)
@@ -239,7 +246,7 @@ def generate_get_plate_layout_window():
     tk.Label(window, text='2) select the drugs excel:', font=('Arial bold',15)).pack(side=tk.TOP)
     def define_drugs(): 
         opt.drugs = askopenfilename(filetypes=[("All files", "*.*")])
-        drugs_button["text"] = "...%s"%(opt.drugs[-15:])
+        drugs_button["text"] = get_last_part_of_string(opt.drugs)
 
     drugs_button = tk.Button(window, text="Browse files", padx=15, pady=15, font=('Arial bold',13), command=define_drugs)
     drugs_button.pack(side=tk.TOP, expand=True)
@@ -270,7 +277,7 @@ def generate_analyze_images_window_mandatory():
 
     def define_plate_layout(): 
         opt.plate_layout = askopenfilename(filetypes=[("All files", "*.*")])
-        plate_layout_button["text"] = "...%s"%(opt.plate_layout[-15:])
+        plate_layout_button["text"] = get_last_part_of_string(opt.plate_layout)
 
     plate_layout_button = tk.Button(window, text="Browse files", padx=15, pady=15, font=('Arial bold',13), command=define_plate_layout)
     plate_layout_button.pack(side=tk.TOP, expand=True)
@@ -281,7 +288,7 @@ def generate_analyze_images_window_mandatory():
 
     def define_images(): 
         opt.images = askdirectory()
-        images_button["text"] = "...%s"%(opt.images[-15:])
+        images_button["text"] = get_last_part_of_string(opt.images)
 
     images_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_images)
     images_button.pack(side=tk.TOP, expand=True)
@@ -301,8 +308,6 @@ def generate_analyze_images_window_mandatory():
     if opt.plate_layout is None: raise ValueError("You should provide an excel with the plate layout")
     if opt.images is None: raise ValueError("You should provide a folder with images")
     if not os.path.isdir(opt.images): raise ValueError("You should select a valid images")
-
-
 
 def generate_analyze_images_window_optional():
 
@@ -394,7 +399,6 @@ if len(sys.argv)==1:
     # define the replace window
     generate_replace_window()
 
-
     # generate the window of each module
     if opt.module=="get_plate_layout": generate_get_plate_layout_window()
     elif opt.module=="analyze_images": 
@@ -402,6 +406,9 @@ if len(sys.argv)==1:
         generate_analyze_images_window_optional()
 
     else: raise ValueError("module should have 'get_plate_layout' or 'analyze_images'")
+
+    # log
+    print("Running pipeline...")
 
 ###########################################
 
