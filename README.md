@@ -1,6 +1,6 @@
 # qCAST
 
-This is a pipeline to analyze images and obtain AST measurements. To use it you need to:
+This is an interactive application to analyze images and obtain AST measurements. To use it you need to:
 
 - Install the pipeline as specified [here](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/installation.md).
 

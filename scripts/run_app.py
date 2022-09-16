@@ -55,6 +55,8 @@ else: raise ValueError("The module is  incorrect")
 
 ###############
 
+# set permissions
+fun.run_cmd("chmod -R 777 %s"%OutDir)
 
 # log
 fun.print_with_runtime("%s: pipeline '%s' finished successfully in %.4f seconds"%(fun.PipelineName, os.environ["MODULE"], time.time()-start_time))

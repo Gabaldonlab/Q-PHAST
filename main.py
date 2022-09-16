@@ -309,6 +309,8 @@ def generate_analyze_images_window_mandatory():
     if opt.images is None: raise ValueError("You should provide a folder with images")
     if not os.path.isdir(opt.images): raise ValueError("You should select a valid images")
 
+
+
 def generate_analyze_images_window_optional():
 
     """Generates one window for the image analysis"""
@@ -506,6 +508,8 @@ except:
 # clean
 remove_file(docker_stderr)
 delete_folder(tmp_input_dir) # clean
+
+# log
 print("main.py %s worked successfully!"%opt.module)
 
 ###########################################################

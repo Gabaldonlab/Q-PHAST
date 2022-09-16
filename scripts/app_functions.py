@@ -400,6 +400,68 @@ def process_image_rotation_and_contrast(Iimage, nimages, raw_image, processed_im
         os.rename(processed_image_tmp, processed_image)
 
 
+def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending):
+
+    """Runs the processing of images for all images in one batch"""
+
+    print_with_runtime("Improving contrast and rotating images for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch))
+
+    # if there are no processed files
+    if not os.path.isdir(processed_outdir) or True: 
+
+        # clean
+        delete_folder(processed_outdir)
+
+        # make tmp folder where to save things folder
+        processed_outdir_tmp = "%s_tmp"%processed_outdir
+        delete_folder(processed_outdir_tmp); make_folder(processed_outdir_tmp)
+
+        # define the imageJ binary
+        imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
+
+        # create a macro to change the image
+        lines = [
+                 'input_dir = "%s/";'%(raw_outdir),
+                 'list_images = getFileList(input_dir);',
+                 'setBatchMode(true);',
+                 'for (i=0; i<list_images.length; i++) {',
+                 '  open(input_dir+list_images[i]);'
+                 '  run("Flip Vertically");',
+                 '  run("Rotate 90 Degrees Left");'
+                 '  run("Enhance Contrast...", "saturated=0.3");',
+                 '  processed_image_name = "%s/" + replace(list_images[i], "%s", "tif");'%(processed_outdir_tmp, image_ending),
+                 '  print(processed_image_name);',
+                 '  saveAs("tif", processed_image_name);',
+                 '  close();',
+                 '}',
+                 'setBatchMode(false);'
+                ]
+
+        macro_file = "%s.processing_script.ijm"%raw_outdir
+        remove_file(macro_file)
+        open(macro_file, "w").write("\n".join(lines)+"\n")
+
+        # run the macro
+        imageJ_std = "%s.generating.std"%processed_outdir_tmp
+        run_cmd("%s --headless -macro %s > %s 2>&1"%(imageJ_binary, macro_file, imageJ_std))
+
+        # check that the macro ended well
+        error_lines = [l for l in open(imageJ_std, "r").readlines() if any([x in l.lower() for x in {"error", "fatal"}])]
+        if len(error_lines)>0: 
+            raise ValueError("imageJ did not work on '%s'. Check '%s' to see what happened."%(plate_batch, imageJ_std.replace("/output", "<output dir>"))); 
+
+        # clean
+        for f in [macro_file, imageJ_std]: remove_file(f)
+
+        # at the end save
+        os.rename(processed_outdir_tmp, processed_outdir)
+
+    # check that all images are there
+    missing_images = set(expected_images).difference(set(os.listdir(processed_outdir)))
+    if len(missing_images)>0: raise ValueError("There are missing images: %s"%missing_images)
+
+    for f in expected_images: 
+        if file_is_empty("%s/%s"%(processed_outdir, f)): raise ValueError("image %s should exist"%f)
 
 def process_image_rotation_and_contrast_PIL(Iimage, nimages, raw_image, processed_image):
 
@@ -1399,22 +1461,33 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     ##### CREATE THE PROCESSED IMAGES #####
 
     print_with_runtime("Getting processed images ...")
+    print_with_runtime("Parsing directories to get images and check that they are properly named...")
 
     # define dirs
     linked_raw_images_dir = "%s/linked_raw_images"%tmpdir; make_folder(linked_raw_images_dir)
     processed_images_dir = "%s/processed_images"%tmpdir; make_folder(processed_images_dir)
     plate_batch_to_images = {}
-
-    # init the inputs_fn
-    inputs_fn = []
+    plate_batch_to_raw_outdir = {}
+    plate_batch_to_processed_outdir = {}
+    all_endings = set()
 
     # go through each image
     for plate_batch in sorted(set(df_plate_layout.plate_batch)):
+        print_with_runtime("Working on batch %s..."%plate_batch)
 
-        processed_images_dir_batch = "%s/%s"%(processed_images_dir, plate_batch); make_folder(processed_images_dir_batch)
-        linked_raw_images_dir_batch = "%s/%s"%(linked_raw_images_dir, plate_batch); make_folder(linked_raw_images_dir_batch)
+        # define files and 
+        processed_images_dir_batch = "%s/%s"%(processed_images_dir, plate_batch)
+        linked_raw_images_dir_batch = "%s/%s"%(linked_raw_images_dir, plate_batch)
         raw_images_dir_batch = "%s/%s"%(images_dir, plate_batch)
         plate_batch_to_images[plate_batch] = set()
+
+        # save folders
+        plate_batch_to_raw_outdir[plate_batch] = linked_raw_images_dir_batch
+        plate_batch_to_processed_outdir[plate_batch] = processed_images_dir_batch
+
+        # make the raw folder with linked images
+        #if not os.path.isdir(processed_images_dir_batch): delete_folder(linked_raw_images_dir_batch) # if processed dir is not created, remove (only to debug)
+        make_folder(linked_raw_images_dir_batch)
 
         for f in os.listdir(raw_images_dir_batch): 
 
@@ -1423,19 +1496,22 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
                 print_with_runtime("WARNING: File <images>/%s/%s not considered as an image. Note that only images ending with %s (and not starting with a '.') are considered"%(plate_batch, f, allowed_image_endings))
                 continue
 
-            # get the linked image
-            linked_raw_image = "%s/%s"%(linked_raw_images_dir_batch, f)
-            soft_link_files("%s/%s"%(raw_images_dir_batch, f), linked_raw_image)
-            
-            # get the  processed image
+            # define the file ending
             year, month, day, hour, minute = get_yyyymmddhhmm_tuple_one_image_name(f)
             year = str(year)
             month = get_int_as_str_two_digits(month); day = get_int_as_str_two_digits(day)
             hour = get_int_as_str_two_digits(hour); minute = get_int_as_str_two_digits(minute)
-            processed_image = "%s/img_0_%s%s%s_%s%s.tif"%(processed_images_dir_batch, year, month, day, hour, minute) # we save all images as tif after processing
+            image_name = "img_0_%s%s%s_%s%s"%(year, month, day, hour, minute) # define the name of the image
 
-            # keep inputs
-            inputs_fn.append((linked_raw_image, processed_image))
+            # define the ending
+            image_ending = f.split(".")[-1].lower(); all_endings.add(image_ending)
+
+            # get the linked image
+            linked_raw_image = "%s/%s.%s"%(linked_raw_images_dir_batch, image_name, image_ending)
+            soft_link_files("%s/%s"%(raw_images_dir_batch, f), linked_raw_image)
+            
+            # get the  processed image
+            processed_image = "%s/%s.tif"%(processed_images_dir_batch, image_name) # we save all images as tif after processing
 
             # keep image
             plate_batch_to_images[plate_batch].add(get_file(processed_image))
@@ -1443,8 +1519,17 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
         # sort images by date
         plate_batch_to_images[plate_batch] = sorted(plate_batch_to_images[plate_batch], key=get_yyyymmddhhmm_tuple_one_image_name)
 
-    # run
-    for I, (r,p) in enumerate(inputs_fn): process_image_rotation_and_contrast(I+1, len(inputs_fn), r, p)
+    # checks
+    if len(all_endings)!=1: raise ValueError("All files should end with the same. These are the endings: %s"%all_endings)
+
+    # log
+    start_time_rotation_contrast = time.time()
+
+    # rotate each plate set at the same time
+    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_and_contrast_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending)
+
+    # log
+    print_with_runtime("Rotating images and Improving contrast took %.3f seconds"%(time.time()-start_time_rotation_contrast))
 
     #######################################
 
