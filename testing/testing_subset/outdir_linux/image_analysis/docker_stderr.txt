@@ -1,6 +1,0 @@
-Traceback (most recent call last):
-  File "/workdir_app/scripts/run_app.py", line 52, in <module>
-    fun.run_analyze_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]), False)
-  File "/workdir_app/scripts/app_functions.py", line 1540, in run_analyze_images
-    kadhvhkad
-NameError: name 'kadhvhkad' is not defined

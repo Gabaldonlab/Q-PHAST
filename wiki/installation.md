@@ -10,7 +10,7 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 - Initialize the 'docker daemon' to start using docker with `sudo systemctl start docker` from the terminal.
 
-- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v1`, you should run `docker pull mikischikora/qcast:v1` from the terminal. You can run `docker images` to check that the image is available.
+- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v0.1`, you should run `docker pull mikischikora/qcast:v0.1` from the terminal. You can run `docker images` to check that the image is available.
 
 
 ## Mac installation
@@ -23,7 +23,7 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 - Initialize the 'docker daemon' to start using docker by running 'Docker Desktop'.
 
-- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v1`, you should run `docker pull mikischikora/qcast:v1` from the terminal. You can run `docker images` to check that the image is available.
+- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v0.1`, you should run `docker pull mikischikora/qcast:v0.1` from the terminal. You can run `docker images` to check that the image is available.
 
 
 ## Windows installation
@@ -38,4 +38,4 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 - Initialize the 'docker daemon' to start using docker by running 'Docker Desktop'.
 
-- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v1`, you should run `docker pull mikischikora/qcast:v1` from the terminal. You can run `docker images` to check that the image is available.
+- Install the `mikischikora/qcast` docker image, available [here](https://hub.docker.com/repository/docker/mikischikora/qcast). You can use whatever tag (or version) you need. For example, if you want to install tag (version) `v0.1`, you should run `docker pull mikischikora/qcast:v0.1` from the terminal. You can run `docker images` to check that the image is available.

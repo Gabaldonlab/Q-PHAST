@@ -6,7 +6,7 @@
 import os, sys, argparse, shutil, subprocess
 from pathlib import Path
 import tkinter as tk
-from tkinter.filedialog import askopenfilename, asksaveasfilename, askdirectory
+from tkinter.filedialog import askopenfilename, askdirectory
 import subprocess
 import webbrowser
 
@@ -46,6 +46,10 @@ opt = parser.parse_args()
 ##############################
 
 ##### DEFINE FUNCTIONS #######
+
+# define general variables
+window_width = 400 # width of all windows
+pipeline_name = "qCAST"
 
 def get_fullpath(x):
 
@@ -113,9 +117,10 @@ def generate_os_window():
 
     """Generates the OS selection window"""
 
-    window = tk.Tk(); window.geometry("300x100")
+    window = tk.Tk(); window.geometry("%ix150"%(window_width))
+    window.title(pipeline_name)
 
-    tk.Label(window, text="Select the Operating System:", font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="\nSelect the Operating System:", font=('Arial bold',15)).pack(side=tk.TOP)
     for os_name in ["linux", "mac", "windows"]: 
 
         def set_os(x = os_name):
@@ -132,12 +137,14 @@ def generate_docker_image_window():
 
     """Generates the image selection window"""
 
-    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2]
+    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2 and 'mikischikora/qcast' in l]
     except: raise ValueError("The docker command 'docker images' did not work properly. Are you sure that docker is running?")
 
-    window = tk.Tk(); window.geometry("300x%i"%(45 + len(docker_images)*45))
+    image_w = 60
+    window = tk.Tk(); window.geometry("%ix%i"%(window_width, image_w + len(docker_images)*image_w))
+    window.title(pipeline_name)
 
-    tk.Label(window, text="Select the docker image:", font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="\nSelect the docker image:", font=('Arial bold',15)).pack(side=tk.TOP)
     for docker_img in docker_images: 
 
         def set_docker_image(x = docker_img):
@@ -155,9 +162,10 @@ def generate_module_window():
     """ generate a window that defines the module"""
 
     window = tk.Tk()
-    window.geometry("300x100")
+    window.geometry("%ix150"%(window_width))
+    window.title(pipeline_name)
 
-    tk.Label(window, text="Select the module:", font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="\nSelect the module:", font=('Arial bold',15)).pack(side=tk.TOP)
 
     for module, module_name in [("get_plate_layout", "plate_layout"), ("analyze_images", "analyze_images")]: 
 
@@ -177,9 +185,10 @@ def generate_output_window():
 
 
     window = tk.Tk()
-    window.geometry("300x100")
+    window.geometry("%ix150"%(window_width))
+    window.title(pipeline_name)
 
-    tk.Label(window, text='Select the output folder:', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='\nSelect the output folder:', font=('Arial bold',15)).pack(side=tk.TOP)
 
     def set_outfolder():
         opt.output = askdirectory()
@@ -197,8 +206,11 @@ def generate_replace_window():
     """Generates the replace window"""
 
     window = tk.Tk()
-    window.geometry("300x140")
-    tk.Label(window, text='Remove the output folder\nand re-do all analyses?\n', font=('Arial bold',15)).pack(side=tk.TOP)
+    window.geometry("%ix210"%(window_width))
+    window.title(pipeline_name)
+
+    tk.Label(window, text='\nRemove the output folder\nand re-do all analyses?\n', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="(set 'No' to re-start from a previous run)\n", font=('Arial bold',12)).pack(side=tk.TOP)
 
     for rep_value, replace_text in [(True, "Yes"), (False, "No")]: 
 
@@ -223,15 +235,16 @@ def generate_get_plate_layout_window():
 
     # init window
     window = tk.Tk()
-    window.geometry("300x350")
+    window.geometry("%ix500"%(window_width))
+    window.title(pipeline_name)
 
     # text
-    tk.Label(window, text='Module get_plate_layout', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='\nModule get_plate_layout', font=('Arial bold',15)).pack(side=tk.TOP)
 
     # info disclaymer
     help_label = tk.Label(window, text='[Click here] to see example files\n', font=('Arial bold', 13))
     help_label.pack(side=tk.TOP)
-    help_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_plates_202108"))
+    help_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_subset"))
 
     # add the strains
     tk.Label(window, text='1) select the strains excel:', font=('Arial bold',15)).pack(side=tk.TOP)
@@ -266,10 +279,11 @@ def generate_analyze_images_window_mandatory():
 
     # init window
     window = tk.Tk()
-    window.geometry("300x450")
+    window.geometry("%ix600"%(window_width))
+    window.title(pipeline_name)
 
     # text
-    tk.Label(window, text='Module analyze_images\n', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='\nModule analyze_images\n', font=('Arial bold',15)).pack(side=tk.TOP)
 
     # add the plate layout
     tk.Label(window, text="1) select plate layout excel:", font=('Arial bold',15)).pack(side=tk.TOP)
@@ -305,8 +319,7 @@ def generate_analyze_images_window_mandatory():
     # run and debug
     window.mainloop()
 
-    if opt.plate_layout is None: raise ValueError("You should provide an excel with the plate layout")
-    if opt.images is None: raise ValueError("You should provide a folder with images")
+    if opt.plate_layout is None or opt.images is None: raise ValueError("You should provide an excel with the plate layout and a folder with the images")
     if not os.path.isdir(opt.images): raise ValueError("You should select a valid images")
 
 
@@ -318,10 +331,11 @@ def generate_analyze_images_window_optional():
 
     # init window
     window = tk.Tk()
-    window.geometry("300x650")
+    window.geometry("%ix850"%(window_width))
+    window.title(pipeline_name)
 
     # text
-    tk.Label(window, text='Module analyze_images', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='\nModule analyze_images', font=('Arial bold',15)).pack(side=tk.TOP)
     tk.Label(window, text="(optional parameters)\n", font=('Arial bold',13)).pack(side=tk.TOP)
 
     # add the keep_tmp_files

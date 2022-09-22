@@ -1,20 +1,20 @@
 # Running
 
-To illustrate how you can run this method we will use an example experiment in which we measured antifungal susceptibility to anidulafungin (ANI) in 24 strains and 8 drug concentrations. The images and input files can be found [here](https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_plates_202108), and you may check them to understand how to design the input files. You may follow these steps to get the calculations (this would work in LINUX for the image `mikischikora/qcast:v1`):
+To illustrate how you can run this method we will use an example experiment in which we measured antifungal susceptibility to anidulafungin (ANI) in 24 strains and 8 drug concentrations (one of them is 0). The images and input files can be found [here](https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_subset), and you may check them to understand how to design the input files. You may follow these steps to get the calculations (this would work in LINUX for the image `mikischikora/qcast:v0.1`):
 
 ## 1-Design the plate layout
 
 Follow these steps before doing the experiment:
 
-- Create an excel table with the 24 strains to be measured (called `strains.xlsx` in the example). This may contain empty wells (named 'H2O') or wells with a pool of strains that will grow in all assayed conditions (named 'Pool').
+- Create an excel table with the 24 strains to be measured (called `strains.xlsx` in the example). This may contain empty wells (named 'H2O') or wells with a pool of strains that will grow in all assayed conditions (named 'Pool'). Make sure that there are no spaces in the strain names.
 
 - Create an excel table with the drugs (column 'drug') and concentrations (column 'concentration') to be assayed (called `drugs.xlsx` in the example). The drugs table should also contain two extra columns:
 
     - The 'plate_batch' column should be a unique identifier for each batch of plates that will be run in a single scanner.
 
-    - The 'plate' column should be a number between '1' and '4' indicating which plate in the batch has a given drug and concentration.  [This image](https://github.com/Gabaldonlab/qCAST/raw/main/misc/wiki_images/example_image.jpeg) shows how to set the 'plate' number.
+    - The 'plate' column should be a number between '1' and '4' indicating which plate in the batch has a given drug and concentration. The [experimental protocol]() shows how to set the 'plate' number.
 
-- Open the terminal and move into the folder where you have the `main.py` script with `cd <type path here>` (for example `cd /home/mschikora/Desktop/qCAST` is the path in my computer). To know the path of your folder you can use the 'Properties' menu. Once you are in the desired folder you can launch our interactive app by typing `python main.py`. To get the plate layout you should follow these steps:
+- Open the terminal and move into the folder where you have the `main.py` script with `cd <type path here>` (for example `cd /home/mschikora/Desktop/qCAST` is the path in my computer). To know the path of your folder you can use the 'Properties' menu. Once you are in the desired folder you can launch our interactive app by typing `python3 main.py`. To get the plate layout you should follow these steps:
 
     - Click on the appropiate Operating System, docker image, the 'plate_layout' module and the output folder (where all files will be saved).
 
@@ -24,7 +24,7 @@ Follow these steps before doing the experiment:
 
 ## 2-Run the experiment
 
-Run the experiment to obtain images for each plate setting the strains as in `output_get_plate_layout/plate_layout.xlsx` (see [experimental protocol]()). Save them into a folder (called `raw_images` in the example) containing one subfolder for each batch of plates (corresponding to the column 'plate_batch' from `drugs.xslx`). The filename of image should have a timestamp with a 'YYYYMMDD_HHMM' format (i.e. `20210814_0011.tif`, `_0_20210814_0011.tif` or `2021_08_14_00_11.tif`). Note that all images should look like the image in the left [here](https://github.com/Gabaldonlab/qCAST/raw/main/misc/wiki_images/example_image.jpeg). Make sure that the plates are positioned well in the quadrants of the image.
+Run the experiment to obtain images for each plate setting the strains as in `output_get_plate_layout/plate_layout.xlsx` (see [experimental protocol]()). Save them into a folder (called `raw_images` in the example) containing one subfolder for each batch of plates (corresponding to the column 'plate_batch' from `drugs.xslx`). The filename of image should have a timestamp with a 'YYYYMMDD_HHMM' format (i.e. `20210814_0011.tif`, `_0_20210814_0011.tif` or `2021_08_14_00_11.tif`). Make sure that the plates are positioned well in the quadrants of the image.
 
 ## 3-Analyze the images
 
@@ -54,12 +54,13 @@ Follow these steps to get the antifungal susceptibility measurements:
 
 - Note that the syntax to execute the script `main.py` is slightly different for each OS. You should execute (in the terminal):
 
-  - In LINUX: `python3 main.py`
-  - In MAC: `python3 main.py`
+  - In LINUX and MAC: `python3 main.py`
   - In WINDOWS: `py main.py`
 
 - If you are running on Windows you also need to run the XLauch application (with all default parameters) BEFORE running this pipeline.
 
-- Note that in this example we only used a subset of 5 images (to ease testing), which would be insufficient to get accurate measurenents.
+- Note that in this example we only used a subset of 5 images (to ease testing), which would be insufficient to get accurate measurements.
 
 - You can also run the `main.py` in a non-interactive manner. To do so you should provide all the arguments (output folder, docker image ...) through the command line. Type `python3 main.py -h` to understand how to use this script. Note that, if you provide any argument it runs in a non-interactive manner.
+
+- The `main.py` requires the Tkinter python library, which is usually installed with python. If this is not true, you will get an import error when running the script. You can install Tkinter like [this](https://www.geeksforgeeks.org/how-to-install-tkinter-in-windows/) or [this](https://www.tutorialspoint.com/how-to-install-tkinter-in-python).

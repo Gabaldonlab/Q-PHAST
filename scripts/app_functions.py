@@ -407,7 +407,7 @@ def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_o
     print_with_runtime("Improving contrast and rotating images for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch))
 
     # if there are no processed files
-    if not os.path.isdir(processed_outdir) or True: 
+    if not os.path.isdir(processed_outdir): 
 
         # clean
         delete_folder(processed_outdir)
@@ -873,9 +873,12 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     return get_tab_as_df_or_empty_df(df_fitness_measurements_file)
 
-def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout):
+def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nbatches, images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout):
 
     """Analyzes the images from images_folder, writing into outdir_all."""
+
+    # log
+    print_with_runtime("Analyzing images for plate_batch-plate %i/%i: %s-plate%i"%(Ibatch, nbatches, plate_batch, plate))
 
     # define the final output
     integrated_data_file = "%s/integrated_data.tbl"%(outdir_all)
@@ -1416,6 +1419,15 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                 plt.close(fig)
                 os.rename(filename_tmp, filename)
 
+def run_function_in_parallel(inputs_fn, parallel_fun):
+
+    """Runs any function in parallel"""
+
+    with multiproc.Pool(multiproc.cpu_count()) as pool:
+
+        pool.starmap(parallel_fun, inputs_fn, chunksize=1)
+        pool.close()
+        pool.terminate()
 
 def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc, automatic_coordinates):
 
@@ -1471,9 +1483,11 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     plate_batch_to_processed_outdir = {}
     all_endings = set()
 
+    # init the inputs to softlink images in parallel
+    inputs_fn_linking = []
+    
     # go through each image
     for plate_batch in sorted(set(df_plate_layout.plate_batch)):
-        print_with_runtime("Working on batch %s..."%plate_batch)
 
         # define files and 
         processed_images_dir_batch = "%s/%s"%(processed_images_dir, plate_batch)
@@ -1506,9 +1520,9 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
             # define the ending
             image_ending = f.split(".")[-1].lower(); all_endings.add(image_ending)
 
-            # get the linked image
+            # get the linked image into inputs_fn_linking
             linked_raw_image = "%s/%s.%s"%(linked_raw_images_dir_batch, image_name, image_ending)
-            soft_link_files("%s/%s"%(raw_images_dir_batch, f), linked_raw_image)
+            inputs_fn_linking.append(("%s/%s"%(raw_images_dir_batch, f), linked_raw_image))
             
             # get the  processed image
             processed_image = "%s/%s.tif"%(processed_images_dir_batch, image_name) # we save all images as tif after processing
@@ -1522,10 +1536,14 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     # checks
     if len(all_endings)!=1: raise ValueError("All files should end with the same. These are the endings: %s"%all_endings)
 
+    # linking images
+    print_with_runtime("Linking images in parallel on %i threads..."%multiproc.cpu_count())
+    run_function_in_parallel(inputs_fn_linking, soft_link_files)
+
     # log
     start_time_rotation_contrast = time.time()
 
-    # rotate each plate set at the same time
+    # rotate each plate set at the same time (not in parallel)
     for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_and_contrast_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending)
 
     # log
@@ -1537,7 +1555,8 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     print_with_runtime("Getting image analysis data for each plate")
 
     # define the list of inputs, which will be processed below
-    inputs_fn = []
+    inputs_fn_coords = []
+    inputs_fn_cropping = []
 
     # define a folder that will contain the linked images for each individual processing
     processed_images_dir_each_plate = "%s/processed_images_each_plate"%tmpdir; make_folder(processed_images_dir_each_plate)
@@ -1546,37 +1565,46 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     for plate_batch, plate in df_plate_layout[["plate_batch", "plate"]].drop_duplicates().values:
         plateID_to_quadrantName = {1:"upper-left", 2:"upper-right", 3:"lower-left", 4:"lower-right"}
 
-        # crop all the images (only desired quadrant) to a working dir
-        print_with_runtime('Cropping images from plate_batch %s and plate %i (%s plate).'%(plate_batch, plate, plateID_to_quadrantName[plate]))
-        
+        # crop all the images (only desired quadrant) to a working dir. Only get files        
         processed_images_dir_batch = "%s/%s"%(processed_images_dir, plate_batch)
         dest_processed_images_dir = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate); make_folder(dest_processed_images_dir)
-        for f in plate_batch_to_images[plate_batch]: generate_croped_image("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f), plate)
+        for f in plate_batch_to_images[plate_batch]: inputs_fn_cropping.append(("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f), plate))
 
         # keep dirs
-        inputs_fn.append((dest_processed_images_dir, plate_batch, plate))
+        inputs_fn_coords.append((dest_processed_images_dir, plate_batch, plate))
+
+    # get the cropped images
+    print_with_runtime("Cropping images in parallel on %i threads..."%multiproc.cpu_count())
+    run_function_in_parallel(inputs_fn_cropping, generate_croped_image)
 
     # go through each plate in each plate set and define the coordinates of the plates manually, using the latest timepoint for each plate
     coordinate_obtention_dir = "%s/colonyzer_coordinates"%tmpdir; make_folder(coordinate_obtention_dir)
 
-    for I,(dest_processed_images_dir, plate_batch, plate) in enumerate(inputs_fn):
+    for I,(dest_processed_images_dir, plate_batch, plate) in enumerate(inputs_fn_coords):
 
-        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate) %i/%i. Click on the upper-left and lower-right spots, then "spacebar" and "g" to save...'%(plate_batch, plate, plateID_to_quadrantName[plate], I+1, len(inputs_fn)))
+        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate) %i/%i. Click on the upper-left and lower-right spots, then "spacebar" and "g" to save...'%(plate_batch, plate, plateID_to_quadrantName[plate], I+1, len(inputs_fn_coords)))
         coordinate_obtention_dir_plate = "%s/%s_plate%i"%(coordinate_obtention_dir, plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
         generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, plate_batch_to_images[plate_batch], automatic_coordinates, plate_batch, plate)
 
     # go through each plate and plate set and run the fitness calculations
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
+    inputs_fn_fitness = []
+
+    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): inputs_fn_fitness.append((I+1, len(inputs_fn_coords), proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], cp.deepcopy(df_plate_layout)))
+
+    print_with_runtime("Analyzing images in parallel on %i threads..."%multiproc.cpu_count())
+    run_function_in_parallel(inputs_fn_fitness, get_df_integrated_fitness_measurements_one_plate_batch_and_plate)
+
+    # integrate the results of the fitness
+    print_with_runtime("Integrating fitness datasets...")
+
     df_fitness_measurements = pd.DataFrame()
     df_growth_measurements_all_timepoints = pd.DataFrame()
+    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
 
-    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn): 
-
-        print_with_runtime("Analyzing images for plate_batch-plate %i/%i: %s-plate%i"%(I+1, len(inputs_fn), plate_batch, plate))
-        
-        # get the fitness measurements
-        df_fitness_measurements = df_fitness_measurements.append(get_df_integrated_fitness_measurements_one_plate_batch_and_plate(proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], df_plate_layout))
-
+        # get the fitness df
+        df_fitness_measurements_batch =  get_tab_as_df_or_empty_df("%s/%s_plate%i/integrated_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
+        df_fitness_measurements = df_fitness_measurements.append(df_fitness_measurements_batch)
 
         # get the growth measurements for all time points
         df_growth_measurements = get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/processed_all_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
