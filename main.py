@@ -516,7 +516,7 @@ print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
 
 try: run_cmd(docker_cmd)
 except: 
-    print("\n\nERROR: The run of the pipeline failed. This is the error log:\n---\n%s\n---\nExiting with code 1!"%("".join(open(docker_stderr, "r").readlines())))
+    print("\n\nERROR: The run of the pipeline failed. This is the error log (check it to fix the error):\n---\n%s\n---\nExiting with code 1!"%("".join(open(docker_stderr, "r").readlines())))
     sys.exit(1)
 
 # clean

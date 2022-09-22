@@ -92,7 +92,6 @@ if file_is_empty(plate_layout):
 
 	run_cmd("%s %s --os %s --module get_plate_layout --output %s%sget_plate_layout --docker_image mikischikora/qcast:v0.1 --strains %s --drugs %s"%(python_exec, main_py, operating_system, outdir, sep, strains, drugs))
 
-	
 # run images
 run_cmd("%s %s --os %s --module analyze_images --output %s%simage_analysis --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%ssubset_raw_images --keep_tmp_files"%(python_exec, main_py, operating_system, outdir, sep, plate_layout, CurDir, sep))
 

@@ -18,6 +18,8 @@ import PIL
 from sklearn.metrics import auc as sklearn_auc
 import matplotlib.pyplot as plt
 import seaborn as sns
+from collections import Counter
+
 
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
@@ -219,7 +221,6 @@ def run_get_plate_layout(strains_excel, drugs_excel, outdir):
     if len(df_drugs)!=len(df_drugs[["plate_batch", "plate"]].drop_duplicates()): raise ValueError("The combination of plate_batch and plate should be unique")
     if len(df_drugs)!=len(df_drugs[["drug", "concentration"]].drop_duplicates()): raise ValueError("The combination of drug and concentration should be unique")
 
-
     df_strains["strain"] = df_strains.strain.apply(lambda s: s.rstrip())    
     for strain in set(df_strains.strain):
         if " " in strain: raise ValueError("The strain names should not have spaces. '%s' is incorrect"%strain)
@@ -235,7 +236,7 @@ def run_get_plate_layout(strains_excel, drugs_excel, outdir):
         try: df_drugs[f] = df_drugs[f].apply(function_format)
         except: raise ValueError("The '%s' should be formatable as %s"%(f, function_format))
 
-    if not all([sum((df_drugs.drug==drug) & (df_drugs.concentration==0))==1 for drug in set(df_drugs.drug)]): raise ValueError("all drugs should have a single concentration of 0.0")
+    if sum(df_drugs.concentration==0)!=1: raise ValueError("There should be only one plate with a concentration of 0.0")
     strange_plates = set(df_drugs.plate).difference({1, 2, 3, 4})
     if len(strange_plates)>0: raise ValueError("There are strainge numbers in plate: %s"%strange_plates)
 
@@ -1000,11 +1001,10 @@ def get_fitness_df_with_relativeFitnessEstimates(fitness_df, fitness_estimates):
             print_with_runtime("WARNING: There are some negative values in %s, modifying the data with a pseudocount"%fe)
             fitness_df[fe] = fitness_df[fe] + abs(min(fitness_df[fitness_df[fe]<0][fe]))    
 
-    # define a df with the maximum growth rate (the one at concentration==0) for each combination of sampleID and assayed drugs
-    df_max_gr = fitness_df[fitness_df.concentration==0.0].set_index("sampleID_and_drug", drop=False)[fitness_estimates]
-    all_sampleID_and_drug = set(df_max_gr.index)
-
-    fitEstimate_to_sampleIDandDrug_to_maxValue = {fe : {sampleIDandDrug : df_max_gr.loc[sampleIDandDrug, fe] for sampleIDandDrug in all_sampleID_and_drug} for fe in fitness_estimates}
+    # define a df with the maximum growth rate (the one at concentration==0) for each combination of sampleID. Note that there is one baseline for all drugs
+    df_max_gr = fitness_df[fitness_df.concentration==0.0].set_index("sampleID", drop=False)[fitness_estimates]
+    all_sampleIDs = set(df_max_gr.index)
+    fitEstimate_to_sampleID_to_maxValue = {fe : {sampleID : df_max_gr.loc[sampleID, fe] for sampleID in all_sampleIDs} for fe in fitness_estimates}
 
     # add the relative fitness estimates
     fitness_estimates_rel = ["%s_rel"%x for x in fitness_estimates]
@@ -1018,7 +1018,7 @@ def get_fitness_df_with_relativeFitnessEstimates(fitness_df, fitness_estimates):
         else: return x  
 
     np.seterr(divide='ignore', invalid="ignore")
-    fitness_df[fitness_estimates_rel] = fitness_df.apply(lambda r: pd.Series({"%s_rel"%fe : get_btw_0_and_1(np.divide(r[fe], fitEstimate_to_sampleIDandDrug_to_maxValue[fe][r["sampleID_and_drug"]])) for fe in fitness_estimates}), axis=1)
+    fitness_df[fitness_estimates_rel] = fitness_df.apply(lambda r: pd.Series({"%s_rel"%fe : get_btw_0_and_1(np.divide(r[fe], fitEstimate_to_sampleID_to_maxValue[fe][r["sampleID"]])) for fe in fitness_estimates}), axis=1)
 
     return fitness_df
 
@@ -1156,12 +1156,16 @@ def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concen
         # init the df that will contain the susceptibility estimates
         df_all = pd.DataFrame()
 
+        # keep
+        fitness_df = cp.deepcopy(fitness_df)
+
         # go through each drug
-        for drug in sorted(set(fitness_df.drug)):
+        for drug in sorted(set(fitness_df[fitness_df.concentration!=0.0].drug)):
             print_with_runtime("getting susceptibility estimates for %s"%drug)
 
-            # get the df for this drug
-            fitness_df_d = fitness_df[fitness_df.drug==drug]
+            # get the df for this drug, adding also the concentration==0 with this drug for normalization
+            fitness_df_d = fitness_df[(fitness_df.drug==drug) | (fitness_df.concentration==0.0)]
+            fitness_df_d["drug"] = drug
 
             # map each drug to the expected concentrations
             sorted_concentrations = sorted(set(fitness_df_d.concentration))
@@ -1210,7 +1214,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concen
 
                 df_f["drug"] = drug
                 df_f["fitness_estimate"] = fitness_estimate
-                df_all = df_all.append(df_f)
+                df_all = df_all.append(df_f).reset_index(drop=True)
 
         # checks 
         for k in set(df_all.keys()).difference({"MIC_25", "MIC_50", "MIC_75", "MIC_90", "rAUC_concentration", "rAUC_log2_concentration"}): check_no_nans_series(df_all[k])
@@ -1264,7 +1268,13 @@ def get_clean_float_value(x):
 
     else: raise ValueError("unconsidered x: %s"%x)
 
+def get_mode(all_vals):
 
+    """Gets mode"""
+
+    c = Counter(all_vals)
+    all_modes = [k for k, v in c.items() if v == c.most_common(1)[0][1]]
+    return min(all_modes)
 
 def get_row_simple_susceptibility_df_one_strain_and_drug(df):
 
@@ -1288,10 +1298,12 @@ def get_row_simple_susceptibility_df_one_strain_and_drug(df):
         # get the range of all replicates and the median
         if len(all_vals)>0: 
             data_dict["median_%s"%field_name] = get_clean_float_value(np.median(all_vals))
+            data_dict["mode_%s"%field_name] = get_clean_float_value(get_mode(all_vals))
             data_dict["range_%s"%field_name] = "%s-%s"%(min(all_vals), max(all_vals))
 
         else: 
             data_dict["median_%s"%field_name] = np.nan
+            data_dict["mode_%s"%field_name] = np.nan
             data_dict["range_%s"%field_name] = "no_data"
 
         # get the number of replicates
@@ -1347,7 +1359,7 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
 
     # make one plot for each drug and fitness_estimate
     for drug in sorted(set(susceptibility_df.drug)):
-
+        
         relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
         for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
             print_with_runtime("plotting the growth curves for %s-%s"%(drug, fitness_estimate))
@@ -1359,7 +1371,8 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
             if file_is_empty(filename):
 
                 # get dfs
-                df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug)].set_index("strain")
+                df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)].set_index("strain")
+                df_fit["drug"] = drug
                 df_suc = susceptibility_df[(susceptibility_df.drug==drug) & (susceptibility_df.fitness_estimate==fitness_estimate)].set_index("strain")
 
                 # add the conc0_is_growing
@@ -1456,10 +1469,22 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     for plate_batch in set(df_plate_layout.plate_batch):
         if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist"%plate_batch)
 
-    for d in set(df_plate_layout.drug):
-        df_d = df_plate_layout[df_plate_layout.drug==d]
+
+    # define all the drugs
+    all_drugs = sorted(set(df_plate_layout[df_plate_layout.concentration!=0.0].drug))
+
+    # more debugs on drugs
+    if len(df_plate_layout[df_plate_layout.concentration==0.0])!=96: raise ValueError("There should be only one plate batch (with 96 rows in the plate layout table) with concentration==0")
+
+    tuple_strains_no_drug = tuple(df_plate_layout[df_plate_layout.concentration==0].strain)
+
+    for d in all_drugs:
+        df_d = df_plate_layout[(df_plate_layout.drug==d) & (df_plate_layout.concentration!=0)]
         set_strainTuples = {tuple(df_d[df_d.concentration==conc].strain) for conc in set(df_d.concentration)}
+
         if len(set_strainTuples)!=1: raise ValueError("ERROR: This script expects the strains in each spot to be the same in all analyzed plates of the same drug. This did not happen for drug=%s. Check the provided plate layouts."%d)
+
+        if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
     
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
@@ -1647,14 +1672,13 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
     # add fields to the fitness df that are necessary to run the AST calculations
     df_fitness_measurements["replicateID"] = "r" + df_fitness_measurements.row.apply(str) + "c" + df_fitness_measurements.column.apply(str)
     df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
-    df_fitness_measurements["sampleID_and_drug"] = df_fitness_measurements.sampleID + "_" + df_fitness_measurements.drug
     df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
     df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
 
     # debugs
-    for d in set(df_plate_layout.drug):
+    for d in all_drugs:
         expected_nsamples = len(set(df_fitness_measurements[(df_fitness_measurements.drug==d)].sampleID))
-        if sum((df_fitness_measurements.drug==d) & (df_fitness_measurements.concentration==0.0))!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
+        if sum(df_fitness_measurements.concentration==0.0)!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
 
     # init variables
     df_susceptibility = pd.DataFrame()

@@ -48,7 +48,7 @@ Follow these steps to get the antifungal susceptibility measurements:
       
       - min concentrations rAUC: This is an integer that indicates the minimum number of concentrations required to calculate rAUC. Note that, when using the 'bad_spot' field, you may get some concentration-vs-growth curves with few points (resulting in poor rAUC calculations). This parameter allows you to set a minimum number of concentrations to get robust rAUC calculations. rAUC will not be calculated on replicates with less points.
 
-    - Once you have set the parameters you can click on 'Run module' to analyze the images. Follow the log printed in the terminal to understand what is happening. The folder `output_analyze_images` will contain all the calculations.
+    - Once you have set the parameters you can click on 'Run module' to analyze the images. Follow the log printed in the terminal to understand what is happening. At some point the pipeline asks the user to define the coordinates of the top-left and lower-right spots. To do so you have to click on them, and then 'spacebar' + 'g' to save. The folder `output_analyze_images` will contain all the calculations.
 
 ## Extra comments
 

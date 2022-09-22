@@ -98,11 +98,15 @@ This is a table with integrated (and simplified) susceptibility calculations. It
 
 - `median_MIC50` is the median MIC50 across replicates.
 
+- `mode_MIC50` is the mode MIC50 across replicates.
+
 - `range_MIC50`is the range of observed MIC50 across replicates.
 
 - `replicates_MIC50` is the number of replicates used for MIC calculations.
 
--  `median_rAUC` is the median rAUC across replicates.
+- `median_rAUC` is the median rAUC across replicates.
+
+- `mode_rAUC` is the mode rAUC across replicates.
 
 - `range_rAUC`is the range of observed rAUC across replicates.
 
