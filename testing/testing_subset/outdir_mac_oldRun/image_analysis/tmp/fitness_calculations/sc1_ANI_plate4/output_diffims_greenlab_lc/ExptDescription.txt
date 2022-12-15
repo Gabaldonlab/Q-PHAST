@@ -1,0 +1,2 @@
+Barcode	Start.Time	Treatment	Medium	Screen	Library	Plate	RepQuad
+img_fitness	2022-08-11_11-49-00	sc1_ANI	[ANI]=0.063	screen	strain	4	1

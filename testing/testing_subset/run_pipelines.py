@@ -44,11 +44,18 @@ qCAST_dir = sep.join(os.getcwd().split(sep)[0:-2])
 if operating_system=="windows":
 
 	# copy files to targe
-	C_qCAST_dir = "C:\\Users\\jnunezr\\Desktop\\qCAST"
+	C_qCAST_dir = "C:\\Users\\bscuser\\Desktop\\qCAST"
 	make_folder(C_qCAST_dir)
 
-	print("synching windows files...")
-	for parent, folders, files in os.walk(qCAST_dir):
+	# copy main
+	shutil.copy("%s\\main.py"%(qCAST_dir), "%s\\main.py"%(C_qCAST_dir))
+
+	# sync internal folders
+	print("synching windows files.....")
+	walk_results = list(os.walk("%s\\scripts"%qCAST_dir)) + list(os.walk("%s\\testing\\testing_subset"%qCAST_dir))
+	#walk_results = list(os.walk("%s\\scripts"%qCAST_dir)) # debug
+
+	for parent, folders, files in walk_results:
 
 		# skip the other outdirs
 		if "outdir_mac" in parent or "outdir_linux" in parent: continue
@@ -68,6 +75,7 @@ if operating_system=="windows":
 		for f in files:
 			if f.startswith("."): continue
 			if not os.path.isfile("%s\\%s"%(C_parent, f)) or not ".tif" in f:
+				print("copying %s"%f)
 				shutil.copy("%s\\%s"%(parent, f), "%s\\%s"%(C_parent, f))
 
 	# define the CurDir where to run
@@ -81,6 +89,7 @@ outdir = "%s%soutdir_%s"%(CurDir, sep, operating_system)
 strains = "%s%sstrains.xlsx"%(CurDir, sep)
 drugs = "%s%sdrugs.xlsx"%(CurDir, sep)
 
+print(outdir)
 make_folder(outdir)
 
 # run the modules
@@ -89,7 +98,6 @@ print("running main.py")
 # get plate layout
 plate_layout = "%s%sget_plate_layout%splate_layout_long.xlsx"%(outdir, sep, sep)
 if file_is_empty(plate_layout): 
-
 	run_cmd("%s %s --os %s --module get_plate_layout --output %s%sget_plate_layout --docker_image mikischikora/qcast:v0.1 --strains %s --drugs %s"%(python_exec, main_py, operating_system, outdir, sep, strains, drugs))
 
 # run images

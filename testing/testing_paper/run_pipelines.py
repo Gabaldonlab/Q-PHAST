@@ -44,7 +44,7 @@ qCAST_dir = sep.join(os.getcwd().split(sep)[0:-2])
 if operating_system=="windows":
 
 	# copy files to targe
-	C_qCAST_dir = "C:\\Users\\jnunezr\\Desktop\\qCAST"
+	C_qCAST_dir = "C:\\Users\\bscuser\\Desktop\\qCAST"
 	make_folder(C_qCAST_dir)
 
 	print("synching windows files...")

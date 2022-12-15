@@ -6,6 +6,8 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 
 - Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
 
+- Optional: if the python dependencies 'pillow' and/or 'Tk-inter' are not installed, install them with `pip install Pillow` and/or `pip install tk`.
+
 - Install docker, which is necessary to run the docker image. You can [find here](https://docs.docker.com/engine/install/) the installation information. Note that to run docker you need to have root permissions.
 
 - Initialize the 'docker daemon' to start using docker with `sudo systemctl start docker` from the terminal.
@@ -16,6 +18,8 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 ## Mac installation
 
 - Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
+
+- Optional: if the python dependencies 'pillow' and/or 'Tk-inter' are not installed, install them with `pip install Pillow` and/or `pip install tk`.
 
 - Install docker, which is necessary to run the docker image. You can [find here](https://docs.docker.com/engine/install/) the installation information. 'Docker Desktop' is a good option. Note that to run docker you need to have root permissions.
 
@@ -31,6 +35,8 @@ To run this software you'll need to execute (from a terminal) the main wrapper s
 - Download the content of this repository [here](https://github.com/Gabaldonlab/qCAST/archive/refs/heads/main.zip). This contains the `main.py` wrapper script and its dependencies (in the `scripts` folder).
 
 - Install python 3 [here](https://www.python.org/downloads/windows/), which is necessary to execute the main wrapper script For windows you can download it from [here](https://www.python.org/downloads/windows/).
+
+- Optional: if the python dependencies 'pillow' and/or 'Tk-inter' are not installed, install them with `pip install Pillow` and/or `pip install tk`.
 
 - Install docker, which is necessary to run the docker image. You can [find here](https://docs.docker.com/engine/install/) the installation information. 'Docker Desktop' is a good option. Note that to run docker you need to have administrator permissions.
 

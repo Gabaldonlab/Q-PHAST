@@ -1442,15 +1442,11 @@ def run_function_in_parallel(inputs_fn, parallel_fun):
         pool.close()
         pool.terminate()
 
-def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc, automatic_coordinates):
 
-    """
-    Runs the analyze_images module.
-    """
+def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
 
-    ##### LOAD AND DEBUG #####
 
-    print_with_runtime("Debugging inputs ...")
+    """Loads a df with the plate layout and also returns all the drugs to test. Also tests if everything is correct"""
 
     # get layout
     df_plate_layout = pd.read_excel(plate_layout_file)[["plate_batch", "plate", "row", "column", "strain", "drug", "concentration", "bad_spot"]]
@@ -1486,14 +1482,24 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
 
         if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
     
+
+    return df_plate_layout, all_drugs
+
+def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
+
+    """Takes the images and generates processed images that are cropped to be one in each plate"""
+
+    #### LOAD INPUTS ####
+
+    # get plate layout df
+    print_with_runtime("Debugging inputs ...")
+    df_plate_layout, all_drugs = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
-    make_folder(tmpdir)
+    make_folder(tmpdir)    
 
-    # define several dirs of the final output
-    growth_curves_dir = "%s/growth_curves"%outdir; make_folder(growth_curves_dir) # a dir with a plot for each growth curve
-
-    ##########################
+    #####################
 
     ##### CREATE THE PROCESSED IMAGES #####
 
@@ -1576,11 +1582,12 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
 
     #######################################
 
-    ##### RUN THE IMAGE ANALYSIS PIPELINE FOR EACH PLATE AND PLATE SET #####
-    print_with_runtime("Getting image analysis data for each plate")
+
+    ########## CROP IMAGES #########
+
+    print_with_runtime("Cropping images")
 
     # define the list of inputs, which will be processed below
-    inputs_fn_coords = []
     inputs_fn_cropping = []
 
     # define a folder that will contain the linked images for each individual processing
@@ -1595,21 +1602,52 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
         dest_processed_images_dir = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate); make_folder(dest_processed_images_dir)
         for f in plate_batch_to_images[plate_batch]: inputs_fn_cropping.append(("%s/%s"%(processed_images_dir_batch, f), "%s/%s"%(dest_processed_images_dir, f), plate))
 
-        # keep dirs
-        inputs_fn_coords.append((dest_processed_images_dir, plate_batch, plate))
-
     # get the cropped images
     print_with_runtime("Cropping images in parallel on %i threads..."%multiproc.cpu_count())
     run_function_in_parallel(inputs_fn_cropping, generate_croped_image)
 
-    # go through each plate in each plate set and define the coordinates of the plates manually, using the latest timepoint for each plate
-    coordinate_obtention_dir = "%s/colonyzer_coordinates"%tmpdir; make_folder(coordinate_obtention_dir)
+    ################################
 
-    for I,(dest_processed_images_dir, plate_batch, plate) in enumerate(inputs_fn_coords):
 
-        print_with_runtime('Getting coordinates for plate_batch %s and plate %i (%s plate) %i/%i. Click on the upper-left and lower-right spots, then "spacebar" and "g" to save...'%(plate_batch, plate, plateID_to_quadrantName[plate], I+1, len(inputs_fn_coords)))
-        coordinate_obtention_dir_plate = "%s/%s_plate%i"%(coordinate_obtention_dir, plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
-        generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_images_dir, coordinate_obtention_dir_plate, plate_batch_to_images[plate_batch], automatic_coordinates, plate_batch, plate)
+def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
+
+    """
+    Runs the analyze_images module.
+    """
+
+    #### LOAD DATA ####
+
+    # get plate layout df
+    df_plate_layout, all_drugs = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+
+    # define the tmpdir
+    tmpdir = "%s/tmp"%outdir
+    if not os.path.isdir(tmpdir): raise ValueError("tmpdir should exist")
+
+    # define several dirs of the final output
+    growth_curves_dir = "%s/growth_curves"%outdir; make_folder(growth_curves_dir) # a dir with a plot for each growth curve
+
+    ###################
+
+    ##### RUN THE IMAGE ANALYSIS PIPELINE FOR EACH PLATE AND PLATE SET #####
+
+    # define the iterable inputs_fn_coords 
+    inputs_fn_coords = []
+    plate_batch_to_images = {}
+    processed_images_dir_each_plate = "%s/processed_images_each_plate"%tmpdir
+
+    # go through each set of processed images
+    for d in sorted([x for x in os.listdir(processed_images_dir_each_plate) if not x.startswith(".")]):
+
+        # get full path of the folder with the cropped images
+        dest_processed_images_dir = "%s/%s"%(processed_images_dir_each_plate, d)
+
+        # get plate batch and plate and add
+        plate_batch, plate = d.split("_plate"); plate = int(plate)    
+        inputs_fn_coords.append((dest_processed_images_dir, plate_batch, plate))
+
+        # add the images
+        plate_batch_to_images[plate_batch] = sorted({f for f in os.listdir(dest_processed_images_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
 
     # go through each plate and plate set and run the fitness calculations
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
@@ -1639,7 +1677,6 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
 
         # keep the growth curves in the final output
         copy_file("%s/%s_plate%i/output_diffims_greenlab_lc/output_plots.pdf"%(outdir_fitness_calculations, plate_batch, plate), "%s/batch_%s-plate%i.pdf"%(growth_curves_dir, plate_batch, plate))
-
 
     # define the merging fields
     merge_fields = ["plate_batch", "plate", "row", "column"]
@@ -1717,3 +1754,7 @@ def run_analyze_images(plate_layout_file, images_dir, outdir, keep_tmp_files, ps
 
 
  
+
+
+
+
