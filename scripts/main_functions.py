@@ -361,7 +361,7 @@ def generate_analyze_images_window_optional():
     window.mainloop()
 
 
-def run_docker_cmd(docker_cmd, final_files):
+def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
 
     """Runs docker cmd with proper debugging"""
 
@@ -374,7 +374,7 @@ def run_docker_cmd(docker_cmd, final_files):
     docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py 2>/output/docker_stderr.txt"'%opt.docker_image
 
     # log
-    print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
+    if print_cmd is True: print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
 
     # define the docker stderr
     docker_stderr = "%s%sdocker_stderr.txt"%(opt.output, get_os_sep())
@@ -505,7 +505,86 @@ def get_coords_one_image_GUIapp(colonizer_coordinates_one_spot, coordinate_obten
 
     open(colonizer_coordinates_one_spot, "w").write("\n".join(lines))
 
-def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_image_names, plate_batch, plate):
+
+def get_coordinates_are_correct_by_running_colonyzer_one_image(dest_processed_images_dir, plate_batch, plate, sorted_image_names, docker_cmd, factor_resize):
+
+    """For a given plate batch and plate, check if the images are correct"""
+
+
+    #### RUN COLONYZER #######
+    print("checking that coordinates are correct...")
+
+    # create a dir for analyze_images_run_colonyzer
+    tmpdir = get_os_sep().join(dest_processed_images_dir.split(get_os_sep())[0:-2])
+    images_for_colonyzer_dir = "%s%simages_for_colonyzer"%(tmpdir, get_os_sep())
+    delete_folder(images_for_colonyzer_dir); make_folder(images_for_colonyzer_dir)
+
+    # add necessary files
+    for f in [sorted_image_names[0], sorted_image_names[-1], "Colonyzer.txt.tmp"]:
+        if f=="Colonyzer.txt.tmp": dest_f = "Colonyzer.txt"
+        else: dest_f = f
+        shutil.copy("%s%s%s"%(dest_processed_images_dir, get_os_sep(), f), "%s%s%s"%(images_for_colonyzer_dir, get_os_sep(), dest_f))
+
+    # run module analyze_images_run_colonyzer to run colonyzer on images_for_colonyzer_dir
+    run_docker_cmd('%s -e MODULE=analyze_images_run_colonyzer -v "%s":/images_for_colonyzer'%(docker_cmd, images_for_colonyzer_dir), [], print_cmd=False)
+
+    ##########################
+
+    ########### GUI APP TO VALIDATE COORDINATES #############
+
+    # define the latest name
+    latest_image = sorted_image_names[-1]
+    image_name = "%s%soutdir_colonyzer%soutput_diffims_greenlab_lc%sOutput_Images%s%s_AREA.png"%(images_for_colonyzer_dir, get_os_sep(), get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
+    downsized_image_name = "%s%sresized_last_image.png"%(images_for_colonyzer_dir, get_os_sep())
+
+    # generate downsized_image_name
+    image_object = PIL_Image.open(image_name)
+    original_w, original_h = image_object.size
+    image_object.resize((int(original_w*factor_resize), int(original_h*factor_resize))).save(downsized_image_name, optimize=True)
+    image_w = original_w*factor_resize
+    image_h = original_h*factor_resize
+
+    # start the window     
+    window = tk.Tk()  
+    window.geometry("%ix%i"%(image_w, image_h))
+
+    # define image that can be added to canvas
+    img = ImageTk.PhotoImage(PIL_Image.open(downsized_image_name))  
+
+    # create canvas 
+    canvas = tk.Canvas(window, width = image_w, height = image_h)  
+    canvas.pack()  
+    canvas.create_image(0, 0, anchor=tk.constants.NW, image=img) 
+
+    # define the title
+    window.title("%s-plate%i, %s. Press 'Y' to accept coordinates | Press 'N' to reject"%(plate_batch, plate, latest_image))
+
+    # create buttons to set correct_coords
+    dict_data = {"correct_coords":None}
+    def yes_click(e): 
+        dict_data["correct_coords"] = True
+        window.destroy()
+
+    def no_click(e): 
+        dict_data["correct_coords"] = False
+        window.destroy()
+
+    window.bind("<y>", yes_click)
+    window.bind("<n>", no_click)
+
+    # run the window
+    window.mainloop() 
+
+    # debug
+    if dict_data["correct_coords"] is None: raise ValueError("you shoud click 'Y' or 'N'")
+
+    #########################################################
+
+    delete_folder(images_for_colonyzer_dir)
+    return dict_data["correct_coords"]
+
+
+def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_image_names, plate_batch, plate, docker_cmd):
 
     """Generates a 'Colonyzer.txt' file in each dest_processed_images_dir with all the coordinates."""
 
@@ -516,22 +595,22 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_pro
     # define the latest image to base the coordinates on
     latest_image = sorted_image_names[-1]
 
-    if file_is_empty(colonizer_coordinates):
+    while file_is_empty(colonizer_coordinates):
 
         # clean
         remove_file(colonizer_coordinates_one_spot)
         remove_file("%s%s%s"%(coordinate_obtention_dir_plate, get_os_sep(), latest_image))
 
         # move one resized image to coordinate_obtention_dir_plate. It should have a width of 700
-        image_object = PIL_Image.open("%s/%s"%(dest_processed_images_dir, latest_image))
+        image_object = PIL_Image.open("%s%s%s"%(dest_processed_images_dir, get_os_sep(), latest_image))
         original_w,  original_h = image_object.size
         factor_resize = 900/original_w
-        image_object.resize((int(original_w*factor_resize), int(original_h*factor_resize))).save("%s/%s"%(coordinate_obtention_dir_plate, latest_image), optimize=True)
-        downsized_w, donwsized_h = PIL_Image.open("%s/%s"%(coordinate_obtention_dir_plate, latest_image)).size
+        image_object.resize((int(original_w*factor_resize), int(original_h*factor_resize))).save("%s%s%s"%(coordinate_obtention_dir_plate, get_os_sep(), latest_image), optimize=True)
+        downsized_w, donwsized_h = PIL_Image.open("%s%s%s"%(coordinate_obtention_dir_plate, get_os_sep(), latest_image)).size
 
         # get coordinates
         get_coords_one_image_GUIapp(colonizer_coordinates_one_spot, coordinate_obtention_dir_plate, latest_image, "%s-plate%i, %s"%(plate_batch, plate, latest_image))
-        
+
         # create a colonyzer file with all the info in dest_processed_images_dir/Colonyzer.txt
 
         # get last line
@@ -548,7 +627,7 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_pro
         coordinates_str = ",".join([str(int(int(x)*(1/factor_resize))) for x in coordinates_str.split(",")])
 
         # check that the coordinates make sense
-        expected_w, expected_h = PIL_Image.open("%s/%s"%(dest_processed_images_dir, latest_image)).size
+        expected_w, expected_h = PIL_Image.open("%s%s%s"%(dest_processed_images_dir, get_os_sep(), latest_image)).size
         top_left_x, top_left_y, bottom_right_x, bottom_right_y = [int(x) for x in coordinates_str.split(",")]
         cropped_w = bottom_right_x - top_left_x
         cropped_h = bottom_right_y - top_left_y
@@ -559,15 +638,18 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_pro
             if cropped_val<=0: raise ValueError("The cropped image has <=0 %s. %s"%(dim, error_log))
             if cropped_val>expected_val: raise ValueError("The %s of the cropped image is above the original one. %s"%(dim, error_log))
             if cropped_val<=(expected_val*0.3): raise ValueError("The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s"%(dim, cropped_val, expected_val, dim, error_log))
-
             if cropped_val<=(expected_val*0.5): print("WARNING: The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s. If you are sure of this you can skip this warning."%(dim, cropped_val, expected_val, dim, error_log))
 
-        # write
+        # write tmp file
         non_coordinates_lines = [l for l in open(colonizer_coordinates_one_spot, "r").readlines() if l.startswith("#") or not l.startswith(latest_image)]
         coordinates_lines = ["%s,%s,%s\n"%(image, wells, coordinates_str) for image in sorted_image_names]
-        
         colonizer_coordinates_tmp = "%s.tmp"%colonizer_coordinates
         open(colonizer_coordinates_tmp, "w").write("".join(non_coordinates_lines + coordinates_lines))
+
+        # check if the coordinates are correct by manual inspection. If they are not, continue to try again
+        #if get_coordinates_are_correct_by_running_colonyzer_one_image(dest_processed_images_dir, plate_batch, plate, sorted_image_names, docker_cmd, factor_resize) is False: continue
+
+        # final save
         os.rename(colonizer_coordinates_tmp, colonizer_coordinates)
 
 
@@ -600,7 +682,7 @@ def get_yyyymmddhhmm_tuple_one_image_name(filename):
 
     return numbers_tuple
 
-def get_colonyzer_coordinates_GUI(outdir):
+def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
     """Generates the colonyzer coordinates for each plate from outdir"""
 
@@ -620,11 +702,11 @@ def get_colonyzer_coordinates_GUI(outdir):
         plate_batch, plate = d.split("_plate"); plate = int(plate)
 
         # define the path where the coordinates will be calculated
-        coordinate_obtention_dir_plate = "%s/%s_plate%i"%(coordinate_obtention_dir, plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
+        coordinate_obtention_dir_plate = "%s%s%s_plate%i"%(coordinate_obtention_dir, get_os_sep(), plate_batch, plate); make_folder(coordinate_obtention_dir_plate)
 
         # define the images name
         sorted_images = sorted({f for f in os.listdir(dest_processed_images_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
 
         # get coordinates
         print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
-        generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate)
+        generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)

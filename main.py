@@ -84,6 +84,20 @@ if len(sys.argv)==1:
 
 ###########################################
 
+
+# print the cmd
+arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("module", opt.module), ("output", opt.output), ("docker_image", opt.docker_image), ("pseudocount_log2_concentration", opt.pseudocount_log2_concentration), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("min_points_to_calculate_resistance_auc", opt.min_points_to_calculate_resistance_auc)]])
+
+if not opt.strains is None: arguments += " --strains %s"%opt.strains
+if not opt.drugs is None: arguments += " --drugs %s"%opt.drugs
+if not opt.plate_layout is None: arguments += " --plate_layout %s"%opt.plate_layout
+if not opt.images is None: arguments += " --images %s"%opt.images
+if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
+if opt.replace is True: arguments += " --replace"
+
+full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
+print("Executing the following command:\n---\n%s\n---\nNote that you can run this command to perform the exact same analysis."%full_command)
+
 # keep start time
 start_time = time.time()
 
@@ -157,16 +171,15 @@ if opt.module=="get_plate_layout":
 elif opt.module=="analyze_images": 
 
     # get the corrected images
-    print("\n\nSTEP 1: Getting cropped, flipped images with improved contrast...")
+    print("\n\nSTEP 1/3: Getting cropped, flipped images with improved contrast...")
     fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s/analyze_images_process_images_correct_finish.txt"%opt.output])
 
     # select the coordinates based on user input
-    print("\n\nSTEP 2: Selecting the coordinates of the spots...")
-    fun.get_colonyzer_coordinates_GUI(opt.output)
-
+    print("\n\nSTEP 2/3: Selecting the coordinates of the spots...")
+    fun.get_colonyzer_coordinates_GUI(opt.output, docker_cmd)
 
     # get fitness and susceptibility measurements
-    print("\n\nSTEP 3: Getting fitness and susceptibility measurements...")
+    print("\n\nSTEP 3/3: Getting fitness and susceptibility measurements...")
     fun.run_docker_cmd("%s -e MODULE=analyze_images_get_measurements"%(docker_cmd), ["%s/analyze_images_get_measurements_correct_finish.txt"%opt.output])
 
 else: raise ValueError("invalid module")

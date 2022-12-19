@@ -29,7 +29,7 @@ CondaDir =  "/opt/conda"
 PipelineName = "qCAST"
 blank_spot_names = {"h2o", "h20", "water", "empty", "blank"}
 allowed_image_endings = {"tiff", "jpg", "jpeg", "png", "tif", "gif"}
-
+parms_colonyzer = ("greenlab", "lc", "diffims")
 
 # functions
 def get_date_and_time_for_print():
@@ -103,7 +103,7 @@ def run_cmd(cmd, env='main_env'):
 
     # define a tmpdir to write the bash scripts
     tmpdir = '/workdir_app/.tmpdir_cmds'
-    make_folder(tmpdir)
+    os.makedirs(tmpdir, exist_ok=True)
 
     # define a bash script to print the cmd and run
     nchars = 15
@@ -909,8 +909,7 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nba
 
         # run colonyzer for all parameters
         #print_with_runtime("Running colonyzer to get raw fitness data...")
-        parms = ("greenlab", "lc", "diffims")
-        run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtension)
+        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_all, image_names_withoutExtension)
 
         # go back to the initial dir
         os.chdir(initial_dir)
@@ -923,7 +922,7 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nba
         #print_with_runtime("Running qfa to get per-spot fitness data...")
 
         # generate the fitness df
-        df_fitness_measurements = get_df_fitness_measurements_one_parm_set(outdir_all, "output_%s"%("_".join(sorted(parms))), plate_batch, plate, df_plate_layout)
+        df_fitness_measurements = get_df_fitness_measurements_one_parm_set(outdir_all, "output_%s"%("_".join(sorted(parms_colonyzer))), plate_batch, plate, df_plate_layout)
 
         ########################################################
 
@@ -1608,6 +1607,38 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
 
     ################################
 
+def run_analyze_images_run_colonyzer(outdir_images):
+
+    """Runs colonyzer on the images that are in outdir_one_image"""
+
+    # define the outdir
+    outdir_colonyzer = "%s/outdir_colonyzer"%outdir_images
+    delete_folder(outdir_colonyzer); make_folder(outdir_colonyzer)
+
+    # check
+    if len(os.listdir(outdir_images))==0: raise ValueError("outdir_one_image can't be empty")
+
+    # clean the hidden files from outdir_one_image
+    for f in os.listdir(outdir_images):
+        if f.startswith("."): remove_file("%s/%s"%(outdir_one_image, f))
+
+    # move into the images dir
+    initial_dir = os.getcwd()
+    os.chdir(outdir_images)
+
+    # check 
+    if file_is_empty("./Colonyzer.txt"): raise ValueError("Colonyzer.txt should exist in %s"%outdir_images)
+
+    # define the image names that you expect
+    image_names_withoutExtension = set({x.split(".")[0] for x in os.listdir(outdir_images) if x.endswith(".tif") and not x.startswith(".")})
+
+    # run colonyzer for all parameters
+    run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_colonyzer, image_names_withoutExtension)
+
+    # go back to the initial dir
+    os.chdir(initial_dir)
+
+    ############################
 
 def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
 

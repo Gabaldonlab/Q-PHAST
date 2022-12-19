@@ -21,7 +21,7 @@ sys.path.insert(0, ScriptsDir)
 import app_functions as fun
 
 # log
-fun.print_with_runtime("running %s %s"%(fun.PipelineName, os.environ["MODULE"]))
+#fun.print_with_runtime("running %s %s"%(fun.PipelineName, os.environ["MODULE"]))
 
 # get the start time
 start_time = time.time()
@@ -45,6 +45,9 @@ if os.environ["MODULE"]=="get_plate_layout": fun.run_get_plate_layout("%s/strain
 # process images
 elif os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir)
 
+# perform growth measurements for one image
+elif os.environ["MODULE"]=="analyze_images_run_colonyzer": fun.run_analyze_images_run_colonyzer("/images_for_colonyzer")
+
 # perform fitness and susceptibility measurements
 elif os.environ["MODULE"]=="analyze_images_get_measurements": 
 
@@ -60,7 +63,7 @@ fun.run_cmd("chmod -R 777 %s"%OutDir)
 
 # log
 log_text = "%s: pipeline '%s' finished successfully in %.4f seconds"%(fun.PipelineName, os.environ["MODULE"], time.time()-start_time)
-fun.print_with_runtime(log_text)
+#fun.print_with_runtime(log_text)
 
 # write final file
 final_file = "%s/%s_correct_finish.txt"%(OutDir, os.environ["MODULE"])
