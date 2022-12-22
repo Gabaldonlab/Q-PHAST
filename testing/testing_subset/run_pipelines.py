@@ -86,22 +86,14 @@ else: CurDir = "%s%stesting%stesting_subset"%(qCAST_dir, sep, sep)
 # define dirs
 main_py = "%s%s..%s..%smain.py"%(CurDir, sep, sep, sep)
 outdir = "%s%soutdir_%s"%(CurDir, sep, operating_system)
-strains = "%s%sstrains.xlsx"%(CurDir, sep)
-drugs = "%s%sdrugs.xlsx"%(CurDir, sep)
-
-print(outdir)
+plate_layout = "%s%splate_layout.xlsx"%(CurDir, sep)
 make_folder(outdir)
 
 # run the modules
 print("running main.py")
 
-# get plate layout
-plate_layout = "%s%sget_plate_layout%splate_layout_long.xlsx"%(outdir, sep, sep)
-if file_is_empty(plate_layout): 
-	run_cmd("%s %s --os %s --module get_plate_layout --output %s%sget_plate_layout --docker_image mikischikora/qcast:v0.1 --strains %s --drugs %s"%(python_exec, main_py, operating_system, outdir, sep, strains, drugs))
-
 # run images
-run_cmd("%s %s --os %s --module analyze_images --output %s%simage_analysis --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%ssubset_raw_images --keep_tmp_files"%(python_exec, main_py, operating_system, outdir, sep, plate_layout, CurDir, sep))
+run_cmd("%s %s --os %s --output %s --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%simages --keep_tmp_files"%(python_exec, main_py, operating_system, outdir, plate_layout, CurDir, sep))
 
 
 

@@ -104,7 +104,7 @@ def generate_docker_image_window():
 
     """Generates the image selection window"""
 
-    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2 and 'mikischikora/qcast' in l]
+    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2 and 'mikischikora/qcast' in l and not '<none>' in l]
     except: raise ValueError("The docker command 'docker images' did not work properly. Are you sure that docker is running?")
 
     image_w = 60
@@ -250,11 +250,21 @@ def generate_analyze_images_window_mandatory():
     window.title(pipeline_name)
 
     # text
-    tk.Label(window, text='\nModule analyze_images\n', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='\nProvide mandatory inputs', font=('Arial bold',15)).pack(side=tk.TOP)
+
+    # add help label
+    help_label = tk.Label(window, text='[Click here] to see example files\n', font=('Arial bold', 13))
+    help_label.pack(side=tk.TOP)
+    help_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_subset"))
 
     # add the plate layout
     tk.Label(window, text="1) select plate layout excel:", font=('Arial bold',15)).pack(side=tk.TOP)
-    tk.Label(window, text="(file 'plate_layout_long.xlsx'\nfrom 'get_plate_layout' module)", font=('Arial bold',13)).pack(side=tk.TOP)
+    tk.Label(window, text="(.xlsx file with plate layout)", font=('Arial bold',13)).pack(side=tk.TOP)
+
+    # add help on the plate layout
+    pl_label = tk.Label(window, text='[Click here] for example layouts\n', font=('Arial bold', 13))
+    pl_label.pack(side=tk.TOP)
+    pl_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/wiki/example_plate_layouts"))
 
     def define_plate_layout(): 
         opt.plate_layout = askopenfilename(filetypes=[("All files", "*.*")])
@@ -300,8 +310,8 @@ def generate_analyze_images_window_optional():
     window.title(pipeline_name)
 
     # text
-    tk.Label(window, text='\nModule analyze_images', font=('Arial bold',15)).pack(side=tk.TOP)
-    tk.Label(window, text="(optional parameters)\n", font=('Arial bold',13)).pack(side=tk.TOP)
+    tk.Label(window, text='\nTune optional parameters', font=('Arial bold',15)).pack(side=tk.TOP)
+    #tk.Label(window, text="(optional parameters)\n", font=('Arial bold',13)).pack(side=tk.TOP)
 
     # add the keep_tmp_files
     tk.Label(window, text='\n1) Keep temporary files?', font=('Arial bold',15)).pack(side=tk.TOP)
@@ -443,24 +453,15 @@ def get_coords_one_image_GUIapp(colonizer_coordinates_one_spot, coordinate_obten
             canvas.create_rectangle(event.x-3, event.y-3, event.x+3, event.y+3, fill="red")
             window.title("%s. Enter to accept points | Double-click to re-start"%backbone_title)
 
-            # create a rectangle with all the grid
+            # define the width of the rectangle
             w_one_spot_rows = (event.y - dict_data["upper_left_Y"])/7
             w_one_spot_cols = (event.x - dict_data["upper_left_X"])/11
             w_one_spot = (w_one_spot_rows + w_one_spot_cols)/2
             half_w_one_spot = w_one_spot*0.5
 
-            inital_x0 = dict_data["upper_left_X"]-half_w_one_spot
-            initial_y0 = dict_data["upper_left_Y"]-half_w_one_spot
-
-            for Ir in range(8):
-                for Ic in range(12):
-
-                    x0 = inital_x0 + Ic*w_one_spot
-                    y0 = initial_y0 + Ir*w_one_spot
-                    x1 = x0 + w_one_spot
-                    y1 = y0 + w_one_spot
-
-                    canvas.create_rectangle(x0, y0, x1, y1, width=1)
+            # create one rect of each spot
+            canvas.create_rectangle(dict_data["upper_left_X"]-half_w_one_spot, dict_data["upper_left_Y"]-half_w_one_spot, dict_data["upper_left_X"]+half_w_one_spot, dict_data["upper_left_Y"]+half_w_one_spot, width=1)
+            canvas.create_rectangle(event.x-half_w_one_spot, event.y-half_w_one_spot, event.x+half_w_one_spot, event.y+half_w_one_spot, width=1)
 
             # keep the coordinates
             dict_data["lower_left_X"] = event.x
@@ -595,7 +596,7 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_pro
     # define the latest image to base the coordinates on
     latest_image = sorted_image_names[-1]
 
-    while file_is_empty(colonizer_coordinates):
+    if file_is_empty(colonizer_coordinates):
 
         # clean
         remove_file(colonizer_coordinates_one_spot)
@@ -682,6 +683,70 @@ def get_yyyymmddhhmm_tuple_one_image_name(filename):
 
     return numbers_tuple
 
+
+def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_batch, plate, sorted_image_names):
+
+    """This function opens an image for a given plate and asks for the user input. If the colonyzer coordinates are bad, it removes the coordinates and also the colonyzer_subset runs"""
+
+    # define dirs
+    processed_images_dir_plate = "%s%sprocessed_images_each_plate%s%s_plate%i"%(tmpdir, get_os_sep(), get_os_sep(), plate_batch, plate)
+    colonyzer_runs_subset_dir_plate = "%s%scolonyzer_runs_subset%s%s_plate%i"%(tmpdir, get_os_sep(), get_os_sep(), plate_batch, plate)
+    colonyzer_coords = "%s%sColonyzer.txt"%(processed_images_dir_plate, get_os_sep())
+
+    # define the latest name with area infered
+    latest_image = sorted_image_names[-1]
+    image_name = "%s%soutput_diffims_greenlab_lc%sOutput_Images%s%s_AREA.png"%(colonyzer_runs_subset_dir_plate, get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
+    downsized_image_name = "%s.downsized.png"%(image_name)
+
+    # generate downsized_image_name
+    image_object = PIL_Image.open(image_name)
+    original_w, original_h = image_object.size
+    factor_resize = 900/original_w
+    image_object.resize((int(original_w*factor_resize), int(original_h*factor_resize))).save(downsized_image_name, optimize=True)
+    image_w = original_w*factor_resize
+    image_h = original_h*factor_resize
+
+    # start the window     
+    window = tk.Tk()  
+    window.geometry("%ix%i"%(image_w, image_h))
+
+    # define image that can be added to canvas
+    img = ImageTk.PhotoImage(PIL_Image.open(downsized_image_name))  
+
+    # create canvas 
+    canvas = tk.Canvas(window, width = image_w, height = image_h)  
+    canvas.pack()  
+    canvas.create_image(0, 0, anchor=tk.constants.NW, image=img) 
+
+    # define the title
+    window.title("%s-plate%i, %s. Press 'Y' to accept coordinates | Press 'N' to reject"%(plate_batch, plate, latest_image))
+
+    # create buttons to set correct_coords
+    dict_data = {"correct_coords":None}
+    def yes_click(e): 
+        dict_data["correct_coords"] = True
+        window.destroy()
+
+    def no_click(e): 
+
+        remove_file(colonyzer_coords)
+        delete_folder(colonyzer_runs_subset_dir_plate)
+
+        dict_data["correct_coords"] = False
+        window.destroy()
+
+    window.bind("<y>", yes_click)
+    window.bind("<n>", no_click)
+
+    # run the window
+    window.mainloop() 
+
+    # debug and log
+    if dict_data["correct_coords"] is True: print("Selected coordinates are correct for %s-plate%s."%(plate_batch, plate))
+    elif dict_data["correct_coords"] is False: print("Selected coordinates are incorrect for %s-plate%s. Repeating coorinate selection..."%(plate_batch, plate))
+    else: raise ValueError("you shoud click 'Y' or 'N'")
+
+
 def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
     """Generates the colonyzer coordinates for each plate from outdir"""
@@ -691,8 +756,9 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
     coordinate_obtention_dir = "%s%scolonyzer_coordinates"%(tmpdir, get_os_sep()); make_folder(coordinate_obtention_dir)
     processed_images_dir_each_plate = "%s%sprocessed_images_each_plate"%(tmpdir, get_os_sep())
 
-    # go through each set of processed images
+    # go through each set of processed images and generate the args list
     all_dirs = [x for x in os.listdir(processed_images_dir_each_plate) if not x.startswith(".")]
+    args_coordinates = []
     for I, d in enumerate(sorted(all_dirs)):
 
         # get full path of the folder with the cropped images
@@ -707,6 +773,35 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
         # define the images name
         sorted_images = sorted({f for f in os.listdir(dest_processed_images_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
 
-        # get coordinates
-        print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
-        generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
+        # keep
+        args_coordinates.append((dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate))
+
+    # define the final coordinate files
+    final_files = ["%s%sColonyzer.txt"%(x[0], get_os_sep()) for x in args_coordinates]
+    final_file_correct = "%s%scoordinates_checking_worked_well.txt"%(tmpdir, get_os_sep())
+
+    # keep trying to generate these files while they are not generated
+    while any([file_is_empty(x) for x in final_files]) or file_is_empty(final_file_correct):
+
+        # define the missing files
+        missing_final_files = [x for x in final_files if file_is_empty(x)]
+
+        # get the corrdinates files
+        for I, (dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate) in enumerate(args_coordinates):
+
+            if file_is_empty("%s%sColonyzer.txt"%(dest_processed_images_dir, get_os_sep())):
+
+                print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
+                generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
+
+        # run colonyzer in parallel using a subset of the images 
+        run_docker_cmd("%s -e MODULE=analyze_images_run_colonyzer_subset_images"%(docker_cmd), [], print_cmd=False)
+
+        # show the images for validation, and remove the colonyzer coordinates that did not work well
+        print("Validation of the coordinates...")
+        for I, (dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate) in enumerate(args_coordinates):
+            print('Validating coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
+            validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_batch, plate, sorted_images)
+
+        # create the final file indicating that this worked well
+        if not any([file_is_empty(x) for x in final_files]): open(final_file_correct, "w").write("coodinates selection worked well...")

@@ -37,29 +37,25 @@ if not os.path.isdir(OutDir): raise ValueError("You should specify the output di
 
 #### MAIN #####
 
-# depending on the input run one or the other pipeline
-
-# get the plate layout
-if os.environ["MODULE"]=="get_plate_layout": fun.run_get_plate_layout("%s/strains.xlsx"%SmallInputs, "%s/drugs.xlsx"%SmallInputs, OutDir)
-
 # process images
-elif os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir)
+if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir)
 
 # perform growth measurements for one image
-elif os.environ["MODULE"]=="analyze_images_run_colonyzer": fun.run_analyze_images_run_colonyzer("/images_for_colonyzer")
+elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run_analyze_images_run_colonyzer_subset_images(OutDir)
 
 # perform fitness and susceptibility measurements
 elif os.environ["MODULE"]=="analyze_images_get_measurements": 
 
-	bool_dict = {'True':True, 'False':False}
-	fun.run_analyze_images_get_measurements("%s/plate_layout_long.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]))
+    bool_dict = {'True':True, 'False':False}
+    fun.run_analyze_images_get_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]))
+
+    # set permissions to be accessible in all cases
+    fun.run_cmd("chmod -R 777 %s"%OutDir)
 
 else: raise ValueError("The module is  incorrect")
 
 ###############
 
-# set permissions to be accessible (this is dangerous)
-fun.run_cmd("chmod -R 777 %s"%OutDir)
 
 # log
 log_text = "%s: pipeline '%s' finished successfully in %.4f seconds"%(fun.PipelineName, os.environ["MODULE"], time.time()-start_time)

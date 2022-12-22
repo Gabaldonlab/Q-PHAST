@@ -1442,7 +1442,238 @@ def run_function_in_parallel(inputs_fn, parallel_fun):
         pool.terminate()
 
 
+def get_only_element_of_list(x):
+
+    """Takes a list with only one element"""
+
+    if len(x)!=1: raise ValueError("list should have 1 element")
+    return x[0]
+
+
+def parse_excel_positions_plate_layout(df_all):
+
+    """Gets the raw excel dataframe and gets the upper-most position of each interesting table"""
+
+    # init vars
+    n_plate_batch = 0
+    n_strains_pos = 0
+    compounds_pos = concentrations_pos = bad_spots_pos = strains_pos = None
+
+    # iterate through rows and columns
+    for Ir in df_all.index:
+        for Ic in df_all.columns:
+            val = df_all.loc[Ir, Ic]
+
+            # the plate batch defines some tables
+            if val=="plate_batch": 
+                n_plate_batch+=1
+
+                if n_plate_batch==1: compounds_pos = (Ir, Ic)
+                elif n_plate_batch==2: concentrations_pos = (Ir, Ic)
+                elif n_plate_batch==3: bad_spots_pos = (Ir, Ic)
+
+
+            # define the strains pos
+            if concentrations_pos is None: continue # it is below the concentrations
+
+            if df_all.loc[Ir-1, Ic]=="1" and df_all.loc[Ir, Ic-1]=="A":
+
+                # validate that there are 12 columns
+                if list(df_all.loc[Ir-1, list(range(Ic, Ic+12))])==list(map(str, range(1, 13))):
+
+                    # validate that there are 8 rows A-H
+                    if list(df_all.loc[list(range(Ir, Ir+8)), Ic-1])==['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']:
+                        n_strains_pos+=1
+                        strains_pos = (Ir, Ic)
+
+    # checks
+    if n_plate_batch!=3: raise ValueError("There should be 3 cells named plate_batch in plate layout")
+    if n_strains_pos!=1: raise ValueError("There can be only one position with strains")
+    list_results = (compounds_pos, concentrations_pos, bad_spots_pos, strains_pos)
+    if any([x is None for x in list_results]): raise ValueError("There are none values in %s"%(str(list_results)))
+
+    return list_results
+
+def get_df_drugs(df_all, comp, conc):
+
+    """Gets a df with plate_batch, plate, drug, concentration. It takes the excel with all files and the compounds and concentrations locations"""
+
+    # get the plate batches and make sure that they are the same in compounds and concentrations
+    plate_batches_comp = []
+    for val in df_all.loc[comp[0]+1:, comp[1]]:
+        if val=="nan": break
+        plate_batches_comp.append(val)
+
+    plate_batches_conc = []
+    for val in df_all.loc[conc[0]+1:, conc[1]]:
+        if val=="nan": break
+        plate_batches_conc.append(val)
+
+    if plate_batches_comp!=plate_batches_conc: raise ValueError("the plate_batches are not the same between comp and conc")
+
+    # fill the df_drugs
+    df_drugs = pd.DataFrame()
+    for Ib, plate_batch in enumerate(plate_batches_comp):
+        for plate in range(1, 5):
+
+            drug = df_all.loc[comp[0]+Ib+1, comp[1]+plate]
+            concentration = df_all.loc[conc[0]+Ib+1, conc[1]+plate]
+
+            if drug=="nan" and concentration=="nan": continue
+            elif drug=="nan" and concentration!="nan":  raise ValueError("conmpounds and concentrations layouts do not match")
+            elif drug!="nan" and concentration=="nan":  raise ValueError("conmpounds and concentrations layouts do not match")
+
+            row_drugs = pd.DataFrame({0:{"plate_batch":plate_batch, "plate":plate, "drug":drug, "concentration":concentration}}).transpose()
+            df_drugs = df_drugs.append(row_drugs).reset_index(drop=True)
+
+
+    # formats
+    df_drugs["concentration"] = df_drugs["concentration"].apply(lambda x: str(x).replace(",", ".")) # format as floats the concentration
+
+    for f, function_format in [("plate_batch", str), ("plate", int), ("drug", str), ("concentration", float)]: 
+        try: df_drugs[f] = df_drugs[f].apply(function_format)
+        except: raise ValueError("The '%s' should be formatable as %s"%(f, function_format))
+
+    # checks
+    strange_plates = set(df_drugs.plate).difference({1, 2, 3, 4})
+    if len(strange_plates)>0: raise ValueError("There are strainge numbers in plate: %s"%strange_plates)
+
+    return df_drugs
+
+def get_df_strains_layout(df_all, strains_pos):
+
+    """Gets df strains layout in 96-well-plate"""
+
+    # init df
+    df_strains_layout = pd.DataFrame(index=list("ABCDEFGH"), columns=list(range(1, 13)))
+
+    # add from df_all and strains_pos
+    for Ir, row in enumerate(df_strains_layout.index):
+        for Ic, col in enumerate(df_strains_layout.columns):
+
+            strain_name = df_all.loc[strains_pos[0]+Ir, strains_pos[1]+Ic].lstrip().rstrip()
+            df_strains_layout.loc[row, col] = strain_name
+
+            # checks
+            if strain_name=="nan": raise ValueError("there can't be empty strains")
+
+    # change index
+    df_strains_layout.index = list(range(1, 9))
+
+    return df_strains_layout
+
+def get_df_plate_layout_long_with_bad_spots(df_plate_layout_long, df_all, bad_spots_pos):
+
+    """Adds the bad spot as a True/False from df_all"""
+
+    # define the number of bad spots
+    all_plate_batches = set(df_plate_layout_long.plate_batch)
+    set_nbadspots = {len([x for x in df_all.loc[bad_spots_pos[0]+1:, bad_spots_pos[1]+I].values if x!="nan"]) for I in range(4)}
+    if len(set_nbadspots)!=1: raise ValueError("The bad_spots are not properly formatted. Make sure that it is a table with non-empty cells.")
+    n_badspots = next(iter(set_nbadspots))
+
+    # load the df with the bad spots and format
+    df_bad_spots = df_all.loc[bad_spots_pos[0]+1:bad_spots_pos[0]+1+n_badspots, bad_spots_pos[1]:bad_spots_pos[1]+3].reset_index(drop=True)
+    df_bad_spots.columns = ["plate_batch", "plate", "row", "column"]
+    letter_to_number = dict(zip(list("ABCDEFGH"), range(1,9)))
+    df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: letter_to_number[x])
+
+    for f, function_format in [("plate_batch", str), ("plate", int), ("row", int), ("column", int)]: 
+        try: df_bad_spots[f] = df_bad_spots[f].apply(function_format)
+        except: raise ValueError("The '%s' should be formatable as %s"%(f, function_format))
+
+    # checks
+    for k in df_bad_spots.keys():
+        strange_values = set(df_bad_spots[k]).difference(set(df_plate_layout_long[k]))
+        if len(strange_values)>0: raise ValueError("There are strange values in %s: %s"%(k, strange_values))
+
+    # merge
+    df_bad_spots["bad_spot"] = True
+    df_plate_layout_long = df_plate_layout_long.merge(df_bad_spots, on=["plate_batch", "plate", "row", "column"], how="left", validate="one_to_one")
+
+    def get_nan_to_False(x):
+        if pd.isna(x): return False
+        else: return True
+    df_plate_layout_long["bad_spot"] = df_plate_layout_long.bad_spot.apply(get_nan_to_False)
+    print("there are %i bad spots that will be removed from the analysis"%(sum(df_plate_layout_long.bad_spot)))
+
+    return df_plate_layout_long
+
+
 def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
+
+
+    """Loads a df with the plate layout and also returns all the drugs to test. Also tests if everything is correct. The plate layout is the excel with complex lines and rows."""
+
+    print("Parsing plate layout...")
+
+    # parse excel and get initial positions of the different tables
+    df_all = pd.read_excel(plate_layout_file).reset_index(drop=True).applymap(str)
+    df_all.columns = list(range(len(df_all.columns)))
+    compounds_pos, concentrations_pos, bad_spots_pos, strains_pos = parse_excel_positions_plate_layout(df_all)
+
+    # define the df_drugs as in the old setting
+    df_drugs = get_df_drugs(df_all, compounds_pos, concentrations_pos)
+
+    # define whether to measire susceptibility as a function of the concentrations
+    measure_susceptibility = True
+    if sum(df_drugs.concentration==0)==0: 
+        print("WARNING: There are no concentration==0 plates. Skipping the susceptibility measurements.")
+        measure_susceptibility = False
+
+    elif sum(df_drugs.concentration==0)!=1: raise ValueError("There should be only one plate with a concentration of 0.0")
+    if sum(df_drugs.concentration!=0)==0: raise ValueError("there have to be some non-0 concentrations")
+
+    # define the df_strains_layout (which has the strains in the 96-well-plate layout)
+    df_strains_layout = get_df_strains_layout(df_all, strains_pos)
+
+    # create the long df for the plate
+    df_plate_layout_long_core = pd.concat([pd.DataFrame({"column":[col]*8, "strain":df_strains_layout[col], "row":list(df_strains_layout.index)}) for col in df_strains_layout.columns]).sort_values(by=["row", "column"]).reset_index(drop=True)
+
+    # create a single df_plate_layout_long with a copy of df_plate_layout_long_core for each combination of plate_batch, plate
+    def get_df_plate_layout_long_one_row_df_drugs(r):
+        df = cp.deepcopy(df_plate_layout_long_core)
+        for f in r.keys(): df[f] = r[f]
+        return df
+    df_plate_layout_long = pd.concat([get_df_plate_layout_long_one_row_df_drugs(r) for I,r in df_drugs.iterrows()])
+
+    # add the 'bad_spot', which allows tunning
+    df_plate_layout_long = get_df_plate_layout_long_with_bad_spots(df_plate_layout_long, df_all, bad_spots_pos)
+
+    # checks
+    if len(df_plate_layout_long)!=len(df_plate_layout_long.drop_duplicates()): raise ValueError("The df should be unique")
+
+    # format
+    df_plate_layout_long = df_plate_layout_long[["plate_batch", "plate", "row", "column", "strain", "drug", "concentration", "bad_spot"]].reset_index(drop=True)
+
+    # debugs
+    for f, expected_values in [("plate", set(range(1, 5))), ("row", set(range(1, 9))), ("column", set(range(1, 13)))]:
+        strange_vals = set(df_plate_layout_long[f]).difference(expected_values)
+        if len(strange_vals)>0: raise ValueError("There are strange values in %s: %s"%(f, strange_vals))
+
+    for plate_batch in set(df_plate_layout_long.plate_batch):
+        if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist"%plate_batch)
+
+    # define all the drugs
+    all_drugs = sorted(set(df_plate_layout_long[df_plate_layout_long.concentration!=0.0].drug))
+
+    # more debugs on drugs
+    if measure_susceptibility is True and len(df_plate_layout_long[df_plate_layout_long.concentration==0.0])!=96: raise ValueError("There should be only one plate batch (with 96 rows in the plate layout table) with concentration==0")
+
+    for d in all_drugs:
+        df_d = df_plate_layout_long[(df_plate_layout_long.drug==d) & (df_plate_layout_long.concentration!=0)]
+        set_strainTuples = {tuple(df_d[df_d.concentration==conc].strain) for conc in set(df_d.concentration)}
+
+        if len(set_strainTuples)!=1: raise ValueError("ERROR: This script expects the strains in each spot to be the same in all analyzed plates of the same drug. This did not happen for drug=%s. Check the provided plate layouts."%d)
+
+        if measure_susceptibility is True:
+            tuple_strains_no_drug = tuple(df_plate_layout_long[df_plate_layout_long.concentration==0].strain)
+            if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
+        
+
+    return df_plate_layout_long, all_drugs, measure_susceptibility
+
+def get_df_plate_layout_and_all_drugs_from_long_format(plate_layout_file, images_dir):
 
 
     """Loads a df with the plate layout and also returns all the drugs to test. Also tests if everything is correct"""
@@ -1484,6 +1715,7 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
 
     return df_plate_layout, all_drugs
 
+
 def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
 
     """Takes the images and generates processed images that are cropped to be one in each plate"""
@@ -1492,7 +1724,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
 
     # get plate layout df
     print_with_runtime("Debugging inputs ...")
-    df_plate_layout, all_drugs = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+    df_plate_layout, all_drugs, measure_susceptibility = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
@@ -1609,7 +1841,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
 
 def run_analyze_images_run_colonyzer(outdir_images):
 
-    """Runs colonyzer on the images that are in outdir_one_image"""
+    """Runs colonyzer on the images that are in outdir_images, which contains 2 images"""
 
     # define the outdir
     outdir_colonyzer = "%s/outdir_colonyzer"%outdir_images
@@ -1640,6 +1872,58 @@ def run_analyze_images_run_colonyzer(outdir_images):
 
     ############################
 
+def run_analyze_images_run_colonyzer_subset_images_one_plate(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d):
+
+    """Runs colonyzer on one plate (d) from processed_images_dir_each_plate, colonyzer_runs_subset_dir contains the images"""
+
+    # define dirs
+    outdir = "%s/%s"%(colonyzer_runs_subset_dir, d) # place where to put the images
+    source_dir =  "%s/%s"%(processed_images_dir_each_plate, d) # origin of the images
+
+    if not os.path.isdir(outdir):
+
+        # make tmp folder
+        outdir_tmp = "%s_tmp"%outdir
+        delete_folder(outdir_tmp); make_folder(outdir_tmp)
+
+        # define the sorted images
+        sorted_image_names = sorted({f for f in os.listdir(source_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
+
+        # add files in outdir_tmp to get images
+        for f in [sorted_image_names[0], sorted_image_names[-1], "Colonyzer.txt"]: soft_link_files("%s/%s"%(source_dir,f), "%s/%s"%(outdir_tmp,f))
+        
+        # move into the images dir
+        initial_dir = os.getcwd()
+        os.chdir(outdir_tmp)
+
+        # define the image names that you expect
+        image_names_withoutExtension = set({x.split(".")[0] for x in os.listdir(outdir_tmp) if x.endswith(".tif") and not x.startswith(".")})
+
+        # run colonyzer for all parameters
+        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_tmp, image_names_withoutExtension)
+        os.rename(outdir_tmp, outdir)
+
+def run_analyze_images_run_colonyzer_subset_images(outdir):
+
+    """Runs colonyzer on a subset of 2 images with the generated Colonyzer.txt file"""
+
+    start_time = time.time()
+
+    # define dirs
+    tmpdir = "%s/tmp"%outdir
+    processed_images_dir_each_plate = "%s/processed_images_each_plate"%tmpdir
+    colonyzer_runs_subset_dir = "%s/colonyzer_runs_subset"%tmpdir; make_folder(colonyzer_runs_subset_dir)
+
+    # define the inputs function to run colonyzer
+    inputs_fn = [(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d) for d in os.listdir(processed_images_dir_each_plate)]
+
+    print_with_runtime("Checking coordinates in parallel on %i threads..."%multiproc.cpu_count())
+    run_function_in_parallel(inputs_fn, run_analyze_images_run_colonyzer_subset_images_one_plate)
+
+    # give permissions
+    run_cmd("chmod -R 777 %s"%colonyzer_runs_subset_dir)
+    print("colonyzer-based grid check took %.2fs"%(time.time()-start_time))
+
 def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
 
     """
@@ -1649,7 +1933,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     #### LOAD DATA ####
 
     # get plate layout df
-    df_plate_layout, all_drugs = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+    df_plate_layout, all_drugs, measure_susceptibility = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
@@ -1732,50 +2016,54 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
     ########################################################################
 
-    #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
+    if measure_susceptibility is True:
 
-    # run the AST calculations based on all plates
-    print_with_runtime("Getting the susceptibility measurements. Adding %s as a pseudocount to calculate log2 concentrations. Considering spots with a  nAUC<%s to be not growing. Calculations are only made on strains with at least %s concentrations..."%(pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc))
+        #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
-    # add fields to the fitness df that are necessary to run the AST calculations
-    df_fitness_measurements["replicateID"] = "r" + df_fitness_measurements.row.apply(str) + "c" + df_fitness_measurements.column.apply(str)
-    df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
-    df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
-    df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
+        # run the AST calculations based on all plates
+        print_with_runtime("Getting the susceptibility measurements. Adding %s as a pseudocount to calculate log2 concentrations. Considering spots with a  nAUC<%s to be not growing. Calculations are only made on strains with at least %s concentrations..."%(pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc))
 
-    # debugs
-    for d in all_drugs:
-        expected_nsamples = len(set(df_fitness_measurements[(df_fitness_measurements.drug==d)].sampleID))
-        if sum(df_fitness_measurements.concentration==0.0)!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
+        # add fields to the fitness df that are necessary to run the AST calculations
+        df_fitness_measurements["replicateID"] = "r" + df_fitness_measurements.row.apply(str) + "c" + df_fitness_measurements.column.apply(str)
+        df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
+        df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
+        df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
 
-    # init variables
-    df_susceptibility = pd.DataFrame()
-    fitness_estimates  = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
+        # debugs
+        for d in all_drugs:
+            expected_nsamples = len(set(df_fitness_measurements[(df_fitness_measurements.drug==d)].sampleID))
+            if sum(df_fitness_measurements.concentration==0.0)!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
 
-    # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
-    df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
+        # init variables
+        df_susceptibility = pd.DataFrame()
+        fitness_estimates  = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
 
-    # save the fitness df
-    save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
+        # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
+        df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
-    # get the susceptibility df for each sampleID
-    susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
+        # save the fitness df
+        save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
 
-    # generate a reduced, simple, susceptibility_df
-    simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
+        # get the susceptibility df for each sampleID
+        susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
-    save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.tab"%outdir)
-    simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%outdir, index=False)
+        # generate a reduced, simple, susceptibility_df
+        simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
 
-    ############################################################
+        save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.tab"%outdir)
+        simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%outdir, index=False)
 
-    ######### MAKE PLOTS ##########
+        ############################################################
 
-    # growth at different drugs
-    plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, "%s/drug_vs_fitness"%outdir, fitness_estimates, min_nAUC_to_beConsideredGrowing)
+        ######### MAKE PLOTS ##########
 
-    ###############################
-    
+        # growth at different drugs
+        plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, "%s/drug_vs_fitness"%outdir, fitness_estimates, min_nAUC_to_beConsideredGrowing)
+
+        ###############################
+
+    else: save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
+
     ###### CLEAN #####
 
     # clean, unless specified otherwise
