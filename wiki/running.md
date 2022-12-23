@@ -38,6 +38,20 @@ To illustrate the running we will use an example experiment in which we measured
 
 ## Extra comments
 
-- Note that in this example we only used a subset of 5 images (to ease testing), which would be insufficient to get accurate measurements.
+- In this example we only used a subset of 5 images (to ease testing), which would be insufficient to get accurate measurements.
 
 - You can also run the `main.py` in a non-interactive manner. To do so you should provide all the arguments (output folder, docker image ...) through the command line. Type `python3 main.py -h` (LINUX/MAC) to understand how to use this script. Note that, if you provide any argument it runs in a non-interactive manner.
+
+- If you break the execution of `main.py` at any point you can re-run it (with the same inputs / parameters) without repeating any steps. Note that the first thing printed to the terminal is the full `main.py` command being used (below the text 'Executing the following command:'). You can copy this command and re-execute it to avoid repeating any steps. Note that this will only work if the inputs (plate layout and images) and parameters are exactly the same.
+
+- The plate layout excel has some constraints:
+
+    - The strain and drug names should be text (non-numeric). For example 'strain-1' is valid, but '100' is not.
+
+    - There can only be one plate with concentration==0 to be used as a reference for susceptibility analyses. If there are no concentration==0 plates the pipeline will only perform fitness calculations.
+
+- In some LINUX systems we saw that the `main.py` execution failed due to permission issues. One solution is to run `sudo python3 main.py`.
+
+- There have to be always 96 strains in the plate layout. If you want to define empty spots you can set the strains as 'H2O'.
+
+

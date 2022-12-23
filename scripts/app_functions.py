@@ -1259,13 +1259,8 @@ def get_clean_float_value(x):
     # ints
     if int(x)==x: return int(x)
 
-    # small floats
-    elif len(str(x).split(".")[1])==1: return x
-
-    # large floats
-    elif len(str(x).split(".")[1])>=2: return round(x, 2)
-
-    else: raise ValueError("unconsidered x: %s"%x)
+    # round to 3 decimals
+    else: return round(x, 3)
 
 def get_mode(all_vals):
 
@@ -1325,7 +1320,7 @@ def get_plate_quadrant(r):
     return quadrant
 
 
-def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing):
+def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration):
 
     """Plots, for each drug and fitness estimate, the growith curves """
 
@@ -1382,7 +1377,7 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                 # init figure as a 4 rows x 6 cols
                 nrows = 4
                 ncols = 6
-                fig = plt.figure(figsize=(ncols*4, nrows*2))
+                fig = plt.figure(figsize=(ncols*4.2, nrows*2.2))
 
                 # add subplots
                 for Is, strain in enumerate(sorted(set(susceptibility_df.strain))):
@@ -1406,21 +1401,27 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                     #ax.get_legend().remove()
                     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
-                    # add line
+                    # add lines
                     for y in [0, 0.5, 1]: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
+
+                    # change the xtciks to have actual concentrations
+                    sorted_concentrations = sorted(set(df_fit.concentration))
+                    ax.set_xticks([np.log2(x+pseudocount_log2_concentration) for x in sorted_concentrations])
+                    ax.set_xticklabels([get_clean_float_value(x) for x in sorted_concentrations], rotation=90)
 
                     # define description
                     if fitness_estimate.endswith("_rel"): desc = fe_to_description[fitness_estimate.split("_rel")[0]]
                     else: desc = fe_to_description[fitness_estimate]
 
-                    description = "%s: %s"%(fitness_estimate, desc)
+                    description = "[%s] vs %s: %s"%(drug, fitness_estimate, desc)
                     if fitness_estimate.endswith("_rel"): description += " (relative to concentration==0)"
                     description += "\nDashed lines show replicates with no growth at concentration==0 (nAUC<%.2f), ignored in susceptibility_measurements_simple.tab"%min_nAUC_to_beConsideredGrowing
 
                     # add axes
                     if Is==2: ax.set_title("%s\n\n%s"%(description, strain))
                     else: ax.set_title(strain)  
-                    ax.set_xlabel("log2([%s])"%drug)
+                    #ax.set_xlabel("[%s]"%drug)
+                    ax.set_xlabel("")
 
                 # adjust
                 plt.subplots_adjust(wspace=0.9, hspace=0.7)
@@ -2057,8 +2058,15 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         ######### MAKE PLOTS ##########
 
-        # growth at different drugs
-        plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, "%s/drug_vs_fitness"%outdir, fitness_estimates, min_nAUC_to_beConsideredGrowing)
+        # growth at different drugs (all plots)
+        outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_extended"%outdir
+        plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration)
+
+        # keep only some key indicators  
+        outdir_drug_vs_fitness = "%s/drug_vs_fitness"%outdir; make_folder(outdir_drug_vs_fitness)
+        for drug in sorted(set(susceptibility_df.drug)):
+            outdir_drug_vs_fitness_drug = "%s/%s"%(outdir_drug_vs_fitness, drug); make_folder(outdir_drug_vs_fitness_drug)
+            for fe in ["nAUC", "DT_h", "nAUC_rel", "DT_h_rel"]: copy_file("%s/%s/%s.pdf"%(outdir_drug_vs_fitness_extended, drug, fe), "%s/%s.pdf"%(outdir_drug_vs_fitness_drug, fe))
 
         ###############################
 

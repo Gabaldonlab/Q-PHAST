@@ -144,7 +144,9 @@ print("\n\nSTEP 3/3: Getting fitness and susceptibility measurements...")
 fun.run_docker_cmd("%s -e MODULE=analyze_images_get_measurements"%(docker_cmd), ["%s/analyze_images_get_measurements_correct_finish.txt"%opt.output])
 
 # clean
-fun.delete_folder(tmp_input_dir) # clean
+for f in ['analyze_images_run_colonyzer_subset_images_correct_finish.txt', 'analyze_images_process_images_correct_finish.txt', 'analyze_images_get_measurements_correct_finish.txt']: fun.remove_file("%s%s%s"%(opt.output, fun.get_os_sep(), f))
+fun.delete_folder(tmp_input_dir)
+
 
 # log
 print("main.py worked successfully in %.2f seconds!"%(time.time()-start_time))

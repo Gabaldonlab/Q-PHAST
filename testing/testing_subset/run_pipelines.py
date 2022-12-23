@@ -93,7 +93,7 @@ make_folder(outdir)
 print("running main.py")
 
 # run images
-run_cmd("%s %s --os %s --output %s --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%simages --keep_tmp_files"%(python_exec, main_py, operating_system, outdir, plate_layout, CurDir, sep))
+run_cmd("%s %s --os %s --output %s --docker_image mikischikora/qcast:v0.1 --plate_layout %s --images %s%simages --keep_tmp_files --pseudocount_log2_concentration 0.01"%(python_exec, main_py, operating_system, outdir, plate_layout, CurDir, sep))
 
 
 
