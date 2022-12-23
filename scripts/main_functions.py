@@ -1,7 +1,43 @@
 # Functions that can be run in any OS
 
-# imports
+# universal imports
 import os, sys, argparse, shutil, subprocess
+
+# environment checks
+print("Testing that the python packages are correctly installed...")
+try: 
+
+    # try to import PIL and tk
+    from PIL import Image as PIL_Image
+    from PIL import ImageTk
+    import tkinter as tk
+
+except:
+
+    # log
+    print("ERROR: Some of the python libraries necessary to run this are not installed. To install them you need to have 'pip' (WINDOWS/LINUX) or 'pip3' (MAC) installed. You can install pip/pip3 as explained in https://pip.pypa.io/en/stable/installation/. Note that, in some MAC systems 'pip' and 'pip3' are equivalent.")
+
+    # tk debug
+    try: import tkinter as tk
+    except:
+        print("ERROR: the library 'tkinter' is not installed. Install it by running 'pip install tk' (LINX/WINDOWS) or 'pip3 install tk' (MAC) in the terminal.")
+        sys.exit(1)
+
+    # PIL debug
+    try:
+        from PIL import Image as PIL_Image
+        from PIL import ImageTk
+
+    except:
+        print("ERROR: the library 'Pillow' is not installed. Install it as explained in https://pillow.readthedocs.io/en/stable/installation.html.")
+        sys.exit(1)
+
+    # exit
+    sys.exit(1)
+
+print("All python packages are correctly installed.")
+
+# specific (non-general) imports
 from pathlib import Path
 import tkinter as tk
 from tkinter.filedialog import askopenfilename, askdirectory
@@ -234,7 +270,7 @@ def generate_get_plate_layout_window():
     # run
     tk.Label(window, text='3) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP)
     def run_module(): window.destroy()
-    tk.Button(window, text="Run module", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
+    tk.Button(window, text="Run", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
 
     window.mainloop()
     if opt.strains is None or opt.drugs is None: raise ValueError("You should provide an excel for both strains and drugs")
@@ -291,7 +327,7 @@ def generate_analyze_images_window_mandatory():
         # run
         window.destroy()
     
-    tk.Button(window, text="Run module", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
+    tk.Button(window, text="Run", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
 
     # run and debug
     window.mainloop()
@@ -365,7 +401,7 @@ def generate_analyze_images_window_optional():
         # run
         window.destroy()
     
-    tk.Button(window, text="Run module", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
+    tk.Button(window, text="Run", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
 
     # run and debug
     window.mainloop()
