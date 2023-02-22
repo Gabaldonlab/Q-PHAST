@@ -56,7 +56,6 @@ else: raise ValueError("The module is  incorrect")
 
 ###############
 
-
 # log
 log_text = "%s: pipeline '%s' finished successfully in %.4f seconds"%(fun.PipelineName, os.environ["MODULE"], time.time()-start_time)
 #fun.print_with_runtime(log_text)

@@ -15,12 +15,12 @@ try:
 except:
 
     # log
-    print("ERROR: Some of the python libraries necessary to run this are not installed. To install them you need to have 'pip' (WINDOWS/LINUX) or 'pip3' (MAC) installed. You can install pip/pip3 as explained in https://pip.pypa.io/en/stable/installation/. Note that, in some MAC systems 'pip' and 'pip3' are equivalent.")
+    print("ERROR: Some of the python libraries necessary to run this are not installed. You can install them with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
 
     # tk debug
     try: import tkinter as tk
     except:
-        print("ERROR: the library 'tkinter' is not installed. Install it by running 'pip install tk' (LINX/WINDOWS) or 'pip3 install tk' (MAC) in the terminal.")
+        print("ERROR: the library 'tkinter' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
         sys.exit(1)
 
     # PIL debug
@@ -29,7 +29,7 @@ except:
         from PIL import ImageTk
 
     except:
-        print("ERROR: the library 'Pillow' is not installed. Install it as explained in https://pillow.readthedocs.io/en/stable/installation.html.")
+        print("ERROR: the library 'pillow' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
         sys.exit(1)
 
     # exit
@@ -49,7 +49,7 @@ from datetime import date
 
 # define general variables
 window_width = 400 # width of all windows
-pipeline_name = "qCAST"
+pipeline_name = "Q-PHAST"
 
 # functions
 def get_fullpath(x): return os.path.realpath(x)
@@ -140,7 +140,7 @@ def generate_docker_image_window():
 
     """Generates the image selection window"""
 
-    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2 and 'mikischikora/qcast' in l and not '<none>' in l]
+    try: docker_images = ["%s:%s"%(l.split()[0], l.split()[1]) for l in str(subprocess.check_output("docker images", shell=True)).split("\\n") if not l.startswith("b'REPOSITORY") and len(l.split())>2 and 'mikischikora/q-phast' in l and not '<none>' in l]
     except: raise ValueError("The docker command 'docker images' did not work properly. Are you sure that docker is running?")
 
     image_w = 60
@@ -157,7 +157,7 @@ def generate_docker_image_window():
         tk.Button(window, text=docker_img, padx=30, pady=10, font=('Arial bold',13), command=set_docker_image).pack(side=tk.TOP, expand=True) 
 
     window.mainloop()
-    if opt.docker_image is None: raise ValueError("You should select the docker_img")
+    if opt.docker_image is None: raise ValueError("You should select the docker image")
 
 
 def generate_module_window():
@@ -180,29 +180,6 @@ def generate_module_window():
 
     window.mainloop()
     if opt.module is None: raise ValueError("You should select the module")
-
-
-def generate_output_window():
-
-    """Generates the output folder"""
-
-
-    window = tk.Tk()
-    window.geometry("%ix150"%(window_width))
-    window.title(pipeline_name)
-
-    tk.Label(window, text='\nSelect the output folder:', font=('Arial bold',15)).pack(side=tk.TOP)
-
-    def set_outfolder():
-        opt.output = askdirectory()
-        window.destroy()
-
-    tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=set_outfolder).pack(side=tk.LEFT, expand=True)
-
-    window.mainloop()
-    if opt.output is None: raise ValueError("You should select the outfolder")
-    if not os.path.isdir(opt.output): raise ValueError("You should select a valid outfolder")
-
 
 def generate_replace_window():
 
@@ -276,6 +253,17 @@ def generate_get_plate_layout_window():
     if opt.strains is None or opt.drugs is None: raise ValueError("You should provide an excel for both strains and drugs")
     if opt.drugs==opt.strains: raise ValueError("The drugs and strains excels can't be the same")
 
+def get_plate_layout_file_from_input_dir(input_dir):
+
+    """Gets an excel file name from the input dir"""
+
+    # get the excel files
+    possible_excel_files = [f for f  in os.listdir(opt.input) if f.endswith(".xlsx") and not f.startswith(".")]
+    if len(possible_excel_files)==0: raise ValueError("There should be one (just one) excel file in the input folder")
+
+    return possible_excel_files[0]
+
+
 def generate_analyze_images_window_mandatory():
 
     """Generates one window for the image analysis"""
@@ -291,34 +279,29 @@ def generate_analyze_images_window_mandatory():
     # add help label
     help_label = tk.Label(window, text='[Click here] to see example files\n', font=('Arial bold', 13))
     help_label.pack(side=tk.TOP)
-    help_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/testing/testing_subset"))
+    help_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/Q-PHAST/tree/main/testing/testing_subsets"))
 
-    # add the plate layout
-    tk.Label(window, text="1) select plate layout excel:", font=('Arial bold',15)).pack(side=tk.TOP)
-    tk.Label(window, text="(.xlsx file with plate layout)", font=('Arial bold',13)).pack(side=tk.TOP)
+    # add the input folder
+    tk.Label(window, text="\n1) select input folder:", font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="(folder with plate layout and images\none subfolder for each plate_batch)", font=('Arial bold',13)).pack(side=tk.TOP)
 
-    # add help on the plate layout
-    pl_label = tk.Label(window, text='[Click here] for example layouts\n', font=('Arial bold', 13))
-    pl_label.pack(side=tk.TOP)
-    pl_label.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/Gabaldonlab/qCAST/tree/main/wiki/example_plate_layouts"))
+    def define_input(): 
+        opt.input = askdirectory()
+        input_button["text"] = get_last_part_of_string(opt.input)
 
-    def define_plate_layout(): 
-        opt.plate_layout = askopenfilename(filetypes=[("All files", "*.*")])
-        plate_layout_button["text"] = get_last_part_of_string(opt.plate_layout)
+    input_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_input)
+    input_button.pack(side=tk.TOP, expand=True)
 
-    plate_layout_button = tk.Button(window, text="Browse files", padx=15, pady=15, font=('Arial bold',13), command=define_plate_layout)
-    plate_layout_button.pack(side=tk.TOP, expand=True)
+    # add the output folder
+    tk.Label(window, text="\n2) select output folder:", font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="(folder to generate output)", font=('Arial bold',13)).pack(side=tk.TOP)
 
-    # add the images
-    tk.Label(window, text="\n2) select images folder:", font=('Arial bold',15)).pack(side=tk.TOP)
-    tk.Label(window, text="(folder with raw images, with a\nsubfolder for each plate_batch)", font=('Arial bold',13)).pack(side=tk.TOP)
+    def define_output(): 
+        opt.output = askdirectory()
+        output_button["text"] = get_last_part_of_string(opt.output)
 
-    def define_images(): 
-        opt.images = askdirectory()
-        images_button["text"] = get_last_part_of_string(opt.images)
-
-    images_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_images)
-    images_button.pack(side=tk.TOP, expand=True)
+    output_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_output)
+    output_button.pack(side=tk.TOP, expand=True)
 
     # run and capture the entries
     tk.Label(window, text='\n3) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
@@ -332,8 +315,12 @@ def generate_analyze_images_window_mandatory():
     # run and debug
     window.mainloop()
 
-    if opt.plate_layout is None or opt.images is None: raise ValueError("You should provide an excel with the plate layout and a folder with the images")
-    if not os.path.isdir(opt.images): raise ValueError("You should select a valid images")
+    # checks
+    if opt.input is None or opt.output is None: raise ValueError("You should provide both input and output folders")
+    if not os.path.isdir(opt.input): raise ValueError("You should select a valid input folder")
+    if not os.path.isdir(opt.output): raise ValueError("You should select a valid output folder")
+    get_plate_layout_file_from_input_dir(opt.input)
+
 
 def generate_analyze_images_window_optional():
 

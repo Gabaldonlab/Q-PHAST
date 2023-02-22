@@ -23,19 +23,17 @@ This is a pipeline to measure antifungal susceptibility from image data in any O
 
     In windows: 'py main.py <arguments>'
 
-Check the github repository (https://github.comGabaldonlab/qCAST) to know how to use this script.
+Check the github repository (https://github.comGabaldonlab/Q-PHAST) to know how to use this script.
 """
 
 # mandatory arguments (if run in command line)               
 parser = argparse.ArgumentParser(description=description, formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument("--os", dest="os", required=False, default=None, type=str, help="The Operating System. It should be 'windows', 'linux' or 'mac'")
 parser.add_argument("--output", dest="output", required=False, default=None, type=str, help="The output directory.")
-parser.add_argument("--docker_image", dest="docker_image", required=False, default=None, type=str, help="The name of the docker image in the format <name>:<tag>. All the versions of the images are in https://hub.docker.com/repository/docker/mikischikora/qcast. For example, you can set '--docker_image mikischikora/qcast:v1' to run version 1.")
-parser.add_argument("--plate_layout", dest="plate_layout", required=False, default=None, type=str, help="An excel table with the plate layout.")
-parser.add_argument("--images", dest="images", required=False, default=None, type=str, help="A folder with the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'.")
-parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (for debugging).")
+parser.add_argument("--docker_image", dest="docker_image", required=False, default=None, type=str, help="The name of the docker image in the format <name>:<tag>. All the versions of the images are in https://hub.docker.com/repository/docker/mikischikora/q-phast. For example, you can set '--docker_image mikischikora/q-phast:v1' to run version 1.")
+parser.add_argument("--input", dest="input", required=False, default=None, type=str, help="A folder with the plate layout and the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'.")
+parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (forqca debugging).")
 parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
-
 parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures.")
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.5, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
@@ -57,34 +55,25 @@ if len(sys.argv)==1:
     fun.generate_os_window()
     fun.generate_docker_image_window()
 
-    # define the output
-    fun.generate_output_window()
-    opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
-    print("Writing results into the output folder '%s'"%opt.output)
+    # generate the window of each type of args
+    fun.generate_analyze_images_window_mandatory()
 
     # define the replace window
     fun.generate_replace_window()
 
-    # generate the window of each type of args
-    fun.generate_analyze_images_window_mandatory()
+    # define the output and input
+    opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
+    print("Writing results into the output folder '%s', using input files from '%s'"%(opt.output, opt.input))
+
+    # generate the 
     fun.generate_analyze_images_window_optional()
+
 
     # log
     print("Running pipeline...")
 
 ###########################################
 
-
-# print the cmd
-arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("output", opt.output), ("docker_image", opt.docker_image), ("pseudocount_log2_concentration", opt.pseudocount_log2_concentration), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("min_points_to_calculate_resistance_auc", opt.min_points_to_calculate_resistance_auc)]])
-
-if not opt.plate_layout is None: arguments += " --plate_layout %s"%opt.plate_layout
-if not opt.images is None: arguments += " --images %s"%opt.images
-if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
-if opt.replace is True: arguments += " --replace"
-
-full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
-print("Executing the following command:\n---\n%s\n---\nNote that you can run this command to perform the exact same analysis."%full_command)
 
 # keep start time
 start_time = time.time()
@@ -93,18 +82,27 @@ start_time = time.time()
 
 # check that the mandatory args are not none
 if opt.docker_image is None: raise ValueError("You should provide a string in --docker_image")
+if opt.input is None: raise ValueError("You should provide a string in --input")
 if opt.output is None: raise ValueError("You should provide a string in --output")
-if opt.plate_layout is None or opt.images is None: raise ValueError("You should provide the --plate_layout and --images arguments.")
-opt.plate_layout = fun.get_fullpath(opt.plate_layout)
-opt.images = fun.get_fullpath(opt.images)
-if fun.file_is_empty(opt.plate_layout): raise ValueError("The file provided in --plate_layout does not exist or it is empty")
-if not os.path.isdir(opt.images): raise ValueError("The folder provided in --images does not exist")
+
+opt.input = fun.get_fullpath(opt.input)
+opt.output = fun.get_fullpath(opt.output)
+if not os.path.isdir(opt.input): raise ValueError("The folder provided in --input does not exist")
 
 # replace
 if opt.replace is True: fun.delete_folder(opt.output)
 
 # check the OS
 if not opt.os in {"linux", "mac", "windows"}: raise ValueError("--os should have 'linux', 'mac' or 'windows'")
+
+# print the cmd
+arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("pseudocount_log2_concentration", opt.pseudocount_log2_concentration), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("min_points_to_calculate_resistance_auc", opt.min_points_to_calculate_resistance_auc)]])
+
+if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
+if opt.replace is True: arguments += " --replace"
+
+full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
+print("Executing the following command:\n---\n%s\n---\nNote that you can run this command to perform the exact same analysis."%full_command)
 
 # check that the docker image can be run
 print("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
@@ -113,6 +111,9 @@ fun.run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
 #############################
 
 ######### GENERATE THE DOCKER CMD AND RUN #################
+
+# define the plate layout file
+plate_layout_file = "%s%s%s"%(opt.input, fun.get_os_sep(), fun.get_plate_layout_file_from_input_dir(opt.input))
 
 # make the output
 opt.output = fun.get_fullpath(opt.output)
@@ -123,13 +124,13 @@ tmp_input_dir = "%s%stmp_small_inputs"%(opt.output, fun.get_os_sep())
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, tmp_input_dir, opt.output, opt.images)
+docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, tmp_input_dir, opt.output, opt.input)
 
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
 
 # pass the plate layout to docker
-fun.copy_file(opt.plate_layout, "%s%splate_layout.xlsx"%(tmp_input_dir, fun.get_os_sep()))
+fun.copy_file(plate_layout_file, "%s%splate_layout.xlsx"%(tmp_input_dir, fun.get_os_sep()))
 
 # get the corrected images
 print("\n\nSTEP 1/3: Getting cropped, flipped images with improved contrast...")

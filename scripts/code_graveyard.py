@@ -301,3 +301,44 @@ elif opt.os=="mac":
 elif opt.os=="windows":
 
     docker_cmd += " -e DISPLAY=host.docker.internal:0.0"
+
+
+
+    #fun.generate_input_output_windows()
+
+
+def generate_input_output_windows():
+
+    """Generates the output folder"""
+
+    window = tk.Tk()
+    window.geometry("%ix300"%(window_width))
+    window.title(pipeline_name)
+
+    # get the input folder
+    tk.Label(window, text='\nSelect the input folder:', font=('Arial bold',15)).pack(side=tk.TOP)
+
+    def set_infolder():
+        opt.input = askdirectory()
+        window.destroy()
+
+    tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=set_infolder).pack(side=tk.LEFT, expand=True)
+
+
+    # get the output folder
+    tk.Label(window, text='\nSelect the output folder:', font=('Arial bold',15)).pack(side=tk.TOP)
+
+    def set_outfolder():
+        opt.output = askdirectory()
+        window.destroy()
+
+    tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=set_outfolder).pack(side=tk.LEFT, expand=True)
+
+    # run window
+    window.mainloop()
+
+    # checks
+    if opt.output is None: raise ValueError("You should select the output folder")
+    if opt.input is None: raise ValueError("You should select the input folder")
+    if not os.path.isdir(opt.output): raise ValueError("You should select a valid output folder")
+    if not os.path.isdir(opt.input): raise ValueError("You should select a valid input folder")

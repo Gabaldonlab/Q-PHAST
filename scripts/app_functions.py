@@ -3,7 +3,7 @@
 # Functions of the image analysis pipeline. This should be imported from the main_env
 
 # imports
-import os, sys, time, random, string, shutil
+import os, sys, time, random, string, shutil, math
 import copy as cp
 from datetime import date
 import pandas as pd
@@ -26,7 +26,7 @@ ScriptsDir = "/workdir_app/scripts"
 CondaDir =  "/opt/conda"
 
 # general variables
-PipelineName = "qCAST"
+PipelineName = "Q-PHAST"
 blank_spot_names = {"h2o", "h20", "water", "empty", "blank"}
 allowed_image_endings = {"tiff", "jpg", "jpeg", "png", "tif", "gif"}
 parms_colonyzer = ("greenlab", "lc", "diffims")
@@ -1374,9 +1374,10 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                 repID_to_is_growing_conc0 = dict(df_suc.set_index("replicateID").conc0_is_growing)
                 df_fit["conc0_is_growing"] = df_fit.replicateID.apply(lambda repID: repID_to_is_growing_conc0[repID])
 
-                # init figure as a 4 rows x 6 cols
-                nrows = 4
-                ncols = 6
+                # define the figure layout depending on the number of strains
+                nstrains = len(set(susceptibility_df.strain))
+                nrows = int(math.sqrt(nstrains))
+                ncols = int(nstrains/nrows)+1          
                 fig = plt.figure(figsize=(ncols*4.2, nrows*2.2))
 
                 # add subplots
@@ -1573,29 +1574,38 @@ def get_df_plate_layout_long_with_bad_spots(df_plate_layout_long, df_all, bad_sp
     if len(set_nbadspots)!=1: raise ValueError("The bad_spots are not properly formatted. Make sure that it is a table with non-empty cells.")
     n_badspots = next(iter(set_nbadspots))
 
-    # load the df with the bad spots and format
-    df_bad_spots = df_all.loc[bad_spots_pos[0]+1:bad_spots_pos[0]+1+n_badspots, bad_spots_pos[1]:bad_spots_pos[1]+3].reset_index(drop=True)
-    df_bad_spots.columns = ["plate_batch", "plate", "row", "column"]
-    letter_to_number = dict(zip(list("ABCDEFGH"), range(1,9)))
-    df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: letter_to_number[x])
+    if n_badspots>0:
 
-    for f, function_format in [("plate_batch", str), ("plate", int), ("row", int), ("column", int)]: 
-        try: df_bad_spots[f] = df_bad_spots[f].apply(function_format)
-        except: raise ValueError("The '%s' should be formatable as %s"%(f, function_format))
+        # load the df with the bad spots and format
+        df_bad_spots = df_all.loc[bad_spots_pos[0]+1:bad_spots_pos[0]+1+n_badspots, bad_spots_pos[1]:bad_spots_pos[1]+3].reset_index(drop=True)
+        for Ir, r in df_bad_spots.iterrows():
+            if any(r.apply(str)=="nan"): raise ValueError("There are empty cells in the bad spots, which is not allowed")
 
-    # checks
-    for k in df_bad_spots.keys():
-        strange_values = set(df_bad_spots[k]).difference(set(df_plate_layout_long[k]))
-        if len(strange_values)>0: raise ValueError("There are strange values in %s: %s"%(k, strange_values))
+        df_bad_spots.columns = ["plate_batch", "plate", "row", "column"]
+        letter_to_number = dict(zip(list("ABCDEFGH"), range(1,9)))
+        df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: letter_to_number[x])
 
-    # merge
-    df_bad_spots["bad_spot"] = True
-    df_plate_layout_long = df_plate_layout_long.merge(df_bad_spots, on=["plate_batch", "plate", "row", "column"], how="left", validate="one_to_one")
+        for f, function_format in [("plate_batch", str), ("plate", int), ("row", int), ("column", int)]: 
+            try: df_bad_spots[f] = df_bad_spots[f].apply(function_format)
+            except: raise ValueError("The '%s' should be formatable as %s"%(f, function_format))
 
-    def get_nan_to_False(x):
-        if pd.isna(x): return False
-        else: return True
-    df_plate_layout_long["bad_spot"] = df_plate_layout_long.bad_spot.apply(get_nan_to_False)
+        # checks
+        for k in df_bad_spots.keys():
+            strange_values = set(df_bad_spots[k]).difference(set(df_plate_layout_long[k]))
+            if len(strange_values)>0: raise ValueError("There are strange values in %s: %s"%(k, strange_values))
+
+        # merge
+        df_bad_spots["bad_spot"] = True
+        df_plate_layout_long = df_plate_layout_long.merge(df_bad_spots.drop_duplicates(), on=["plate_batch", "plate", "row", "column"], how="left", validate="one_to_one")
+
+        def get_nan_to_False(x):
+            if pd.isna(x): return False
+            else: return True
+        df_plate_layout_long["bad_spot"] = df_plate_layout_long.bad_spot.apply(get_nan_to_False)
+
+    else: df_plate_layout_long["bad_spot"] = False
+
+    # log
     print("there are %i bad spots that will be removed from the analysis"%(sum(df_plate_layout_long.bad_spot)))
 
     return df_plate_layout_long
@@ -1613,6 +1623,15 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
     df_all.columns = list(range(len(df_all.columns)))
     compounds_pos, concentrations_pos, bad_spots_pos, strains_pos = parse_excel_positions_plate_layout(df_all)
 
+    # define the experiment name
+    header_name_exp = df_all.loc[1, 10]
+    if header_name_exp!="Name of the experiment": raise ValueError("The row 2, column 11 of the plate layout should contain a cell called 'Name of the experiment', which is not the case. This suggests that the plate layout is not properly formatted. This cell contains this: '%s'"%header_name_exp)
+
+    experiment_name = str(df_all.loc[3, 10]).replace(" ", "").replace("\t", "")
+    if experiment_name in {"nan", ""}: experiment_name = "Q-PHAST-experiment"
+    experiment_name = str(experiment_name)
+    print("The experiment name is '%s'"%experiment_name)
+
     # define the df_drugs as in the old setting
     df_drugs = get_df_drugs(df_all, compounds_pos, concentrations_pos)
 
@@ -1627,6 +1646,8 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
 
     # define the df_strains_layout (which has the strains in the 96-well-plate layout)
     df_strains_layout = get_df_strains_layout(df_all, strains_pos)
+
+    # DEBUG check empty spots
 
     # create the long df for the plate
     df_plate_layout_long_core = pd.concat([pd.DataFrame({"column":[col]*8, "strain":df_strains_layout[col], "row":list(df_strains_layout.index)}) for col in df_strains_layout.columns]).sort_values(by=["row", "column"]).reset_index(drop=True)
@@ -1672,7 +1693,7 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
             if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
         
 
-    return df_plate_layout_long, all_drugs, measure_susceptibility
+    return df_plate_layout_long, all_drugs, measure_susceptibility, experiment_name
 
 def get_df_plate_layout_and_all_drugs_from_long_format(plate_layout_file, images_dir):
 
@@ -1725,7 +1746,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir):
 
     # get plate layout df
     print_with_runtime("Debugging inputs ...")
-    df_plate_layout, all_drugs, measure_susceptibility = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+    df_plate_layout, all_drugs, measure_susceptibility, experiment_name = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
@@ -1925,6 +1946,69 @@ def run_analyze_images_run_colonyzer_subset_images(outdir):
     run_cmd("chmod -R 777 %s"%colonyzer_runs_subset_dir)
     print("colonyzer-based grid check took %.2fs"%(time.time()-start_time))
 
+
+def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_nAUC_to_beConsideredGrowing):
+
+    """Generate an excel with the potential bad spots"""
+
+    # keep
+    df_fitness_measurements = cp.deepcopy(df_fitness_measurements)
+
+    # log
+    print_with_runtime("Generating excel with automatically-inferred potential bad spots...")
+
+    # init df with manually-defined bad spots
+    num_to_letter = dict(zip(range(1,9), "ABCDEFGH"))
+    df_bad_spots = df_fitness_measurements[df_fitness_measurements.bad_spot==True]
+    df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: num_to_letter[x])
+    df_bad_spots["bad_spot_reason"] = "manual setting in plate layout"
+
+    fields_spot = ["plate_batch", "plate", "row", "column", "strain", "bad_spot_reason"]
+    df_bad_spots = df_bad_spots[fields_spot]
+
+    # for the other spots, add them automatically
+    df_fitness_measurements = df_fitness_measurements[df_fitness_measurements.bad_spot==False]
+
+    # get automatic bad spots
+    def get_bad_spot_reason_one_spot(r, median_nAUC, median_DT_h):
+
+        # if none of them are growing, it can't be a bad spot
+        if median_nAUC<min_nAUC_to_beConsideredGrowing and r.nAUC<min_nAUC_to_beConsideredGrowing: return ""
+
+        # define a list of reasons that indicate that this could be a bad spot
+        reasons_bad_spot = []
+        if r.nAUC>(2*median_nAUC) or r.nAUC<(0.5*median_nAUC): reasons_bad_spot.append("nAUC=%.3f VS median nAUC=%.3f"%(r.nAUC, median_nAUC))
+        if r.DT_h>(2*median_DT_h) or r.DT_h<(0.5*median_DT_h): reasons_bad_spot.append("DT_h=%.3f VS median DT_h=%.3f"%(r.DT_h, median_DT_h))
+
+        # if by both measures this is a bad spot
+        if len(reasons_bad_spot)==2: return "; ".join(reasons_bad_spot)
+
+        # else it is not
+        else: return ""
+
+    def get_df_bad_spots_one_strain_and_plate(df):
+
+        # if there are no replicates, return an empty df
+        if len(df)==1: return pd.DataFrame(columns=fields_spot) 
+
+        # define the median
+        median_nAUC = np.median(df.nAUC)
+        median_DT_h = np.median(df.DT_h)
+
+        # define if it is a bad spot
+        df["bad_spot_reason"] = df[["nAUC", "DT_h"]].apply(get_bad_spot_reason_one_spot, median_nAUC=median_nAUC, median_DT_h=median_DT_h, axis=1)
+
+        # return bad spots (if any)
+        df = df[df.bad_spot_reason!=""]
+        return df[fields_spot]
+
+    df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate)
+    df_bad_spots_automatic["row"] = df_bad_spots_automatic.row.apply(lambda x: num_to_letter[x])
+
+    # merge and save
+    df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
+    df_bad_spots[fields_spot].sort_values(by=["plate_batch", "plate", "strain", "row", "column"]).to_excel(filename, index=False)
+
 def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
 
     """
@@ -1934,7 +2018,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     #### LOAD DATA ####
 
     # get plate layout df
-    df_plate_layout, all_drugs, measure_susceptibility = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
+    df_plate_layout, all_drugs, measure_susceptibility, experiment_name = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
@@ -1977,6 +2061,12 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     # integrate the results of the fitness
     print_with_runtime("Integrating fitness datasets...")
 
+    # define the merging fields
+    merge_fields = ["plate_batch", "plate", "row", "column"]
+
+    # define the fields
+    df_growth_fields = merge_fields + ['X.Offset', 'Y.Offset', 'Area', 'Trimmed', 'Threshold', 'Intensity', 'Edge.Pixels', 'redMean', 'greenMean', 'blueMean', 'redMeanBack', 'greenMeanBack', 'blueMeanBack', 'Edge.Length', 'Tile.Dimensions.X', 'Tile.Dimensions.Y', 'x', 'y', 'Diameter', 'Date.Time', 'Inoc.Time', 'Timeseries.order', 'Expt.Time', 'Growth']
+
     df_fitness_measurements = pd.DataFrame()
     df_growth_measurements_all_timepoints = pd.DataFrame()
     for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
@@ -1989,17 +2079,21 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
         df_growth_measurements = get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/processed_all_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
         df_growth_measurements["plate_batch"] = plate_batch
         df_growth_measurements["plate"] = plate
+
+        # change
+        df_growth_measurements = df_growth_measurements.rename(columns={"Row":"row", "Column":"column"})[df_growth_fields]
+
+        # print nans in blueMeanBack
+        df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)][["Growth", "Expt.Time"]]
+        if len(df_test)>0: raise ValueError("There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel."%(plate_batch, plate))
+
+        # keep
         df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.append(df_growth_measurements)
 
         # keep the growth curves in the final output
         copy_file("%s/%s_plate%i/output_diffims_greenlab_lc/output_plots.pdf"%(outdir_fitness_calculations, plate_batch, plate), "%s/batch_%s-plate%i.pdf"%(growth_curves_dir, plate_batch, plate))
 
-    # define the merging fields
-    merge_fields = ["plate_batch", "plate", "row", "column"]
-
-    # keep some fields and merge the df_growth_measurements_all_timepoints
-    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.rename(columns={"Row":"row", "Column":"column"})
-    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints[merge_fields + ['X.Offset', 'Y.Offset', 'Area', 'Trimmed', 'Threshold', 'Intensity', 'Edge.Pixels', 'redMean', 'greenMean', 'blueMean', 'redMeanBack', 'greenMeanBack', 'blueMeanBack', 'Edge.Length', 'Tile.Dimensions.X', 'Tile.Dimensions.Y', 'x', 'y', 'Diameter', 'Date.Time', 'Inoc.Time', 'Timeseries.order', 'Expt.Time', 'Growth']]
+    # add the plate layout info
     df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="many_to_one").reset_index(drop=True)
 
     # keep some fields and merge the df_fitness_measurements
@@ -2012,12 +2106,22 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     for k in df_fitness_measurements.keys(): check_no_nans_series(df_fitness_measurements[k])
     for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
 
+    # create an excel with the potential bad spots
+    generate_excel_w_potential_bad_spots(df_fitness_measurements, "%s/potential_bad_spots.xlsx"%outdir, min_nAUC_to_beConsideredGrowing)
+
+
+
+    # DEBUG create_simple_fitness_table
+
     # save the dataframe with all the timepoonts
     save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.tab"%outdir)
 
     ########################################################################
 
     if measure_susceptibility is True:
+
+        # if some bad spots are in conc==0, set also as bad spots the others
+        # DEBUG rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
 
         #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
@@ -2042,10 +2146,18 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
+        # DEBUG create_simple_fitness_table_rel
+
+
         # save the fitness df
         save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
 
         # get the susceptibility df for each sampleID
+
+        # DEBUG error_add_SMG
+
+        # DEBUG error_only_create_susceptibility_for_drugs_with_more_than_1_conc
+
         susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
         # generate a reduced, simple, susceptibility_df
@@ -2057,6 +2169,8 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
         ############################################################
 
         ######### MAKE PLOTS ##########
+
+        # DEBUG error_heatmap
 
         # growth at different drugs (all plots)
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_extended"%outdir
@@ -2076,6 +2190,12 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
     # clean, unless specified otherwise
     if keep_tmp_files is False: delete_folder(tmpdir)
+
+
+    # rename files with experiment name
+    #print(outdir, experiment_name)
+
+    # DEBUG error_you_need_to_rename_according_to_experiment_name
 
     #################
 
