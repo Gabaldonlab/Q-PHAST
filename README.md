@@ -1,6 +1,6 @@
 # Q-PHAST: Quantitative Phenotyping and Antimicrobial Susceptibility Testing
 
-This is an interactive application to analyze images and obtain AST measurements. To use it you need to:
+This is the software to analyze the images from the Q-PHAST pipeline. This software is an application to  analyze images and obtain phenotypes and AST measurements. To use it you need to:
 
 - Install the pipeline as specified [here](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/installation.md).
 
