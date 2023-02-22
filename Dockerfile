@@ -4,7 +4,6 @@ FROM continuumio/miniconda3:4.12.0
 WORKDIR /workdir_app
 
 # copy all the necessary files into /workdir_app. This is everything from the github repository.
-# COPY . .
 COPY installation installation
 
 # log
@@ -14,7 +13,6 @@ RUN echo 'Creating docker image...'
 RUN chmod -R 755 /workdir_app
 
 # install mamba to be faster
-# RUN conda install -y -c conda-forge mamba=0.15.3
 RUN conda install -y -c conda-forge mamba
 
 # create the main conda env
@@ -44,8 +42,8 @@ RUN chmod -R 755 /workdir_app
 
 #### COMMENTS ####
 
-# Create this image with 'docker build -t mikischikora/qcast:v0.1 -f ./Dockerfile .'
-# Upload to dockerhub with 'docker push mikischikora/qcast:v0.1'
-# download with 'docker pull mikischikora/qcast:v0.1'
+# Create this image with 'docker build -t mikischikora/q-phast:v1 -f ./Dockerfile .'
+# Upload to dockerhub with 'docker push mikischikora/q-phast:v1'
+# download with 'docker pull mikischikora/q-phast:v1'
 
 ##################
