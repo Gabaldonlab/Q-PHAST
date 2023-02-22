@@ -1,4 +1,4 @@
-# qCAST
+# Q-PHAST: Quantitative Phenotyping and Antimicrobial Susceptibility Testing
 
 This is an interactive application to analyze images and obtain AST measurements. To use it you need to:
 
