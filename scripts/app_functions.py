@@ -1557,7 +1557,7 @@ def get_df_strains_layout(df_all, strains_pos):
             df_strains_layout.loc[row, col] = strain_name
 
             # checks
-            if strain_name=="nan": raise ValueError("there can't be empty strains")
+            if strain_name in {"nan", ""}: raise ValueError("There can't be empty cells in the 96-strain grid of the plate layout. If you have empty spots, specify them as 'H2O' or 'empty'.")
 
     # change index
     df_strains_layout.index = list(range(1, 9))
@@ -1627,7 +1627,7 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
     header_name_exp = df_all.loc[1, 10]
     if header_name_exp!="Name of the experiment": raise ValueError("The row 2, column 11 of the plate layout should contain a cell called 'Name of the experiment', which is not the case. This suggests that the plate layout is not properly formatted. This cell contains this: '%s'"%header_name_exp)
 
-    experiment_name = str(df_all.loc[3, 10]).replace(" ", "").replace("\t", "")
+    experiment_name = str(df_all.loc[3, 10]).rstrip().lstrip()
     if experiment_name in {"nan", ""}: experiment_name = "Q-PHAST-experiment"
     experiment_name = str(experiment_name)
     print("The experiment name is '%s'"%experiment_name)
@@ -1646,8 +1646,6 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
 
     # define the df_strains_layout (which has the strains in the 96-well-plate layout)
     df_strains_layout = get_df_strains_layout(df_all, strains_pos)
-
-    # DEBUG check empty spots
 
     # create the long df for the plate
     df_plate_layout_long_core = pd.concat([pd.DataFrame({"column":[col]*8, "strain":df_strains_layout[col], "row":list(df_strains_layout.index)}) for col in df_strains_layout.columns]).sort_values(by=["row", "column"]).reset_index(drop=True)
@@ -2107,11 +2105,12 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
 
     # create an excel with the potential bad spots
+    #potential_bad_spots
     generate_excel_w_potential_bad_spots(df_fitness_measurements, "%s/potential_bad_spots.xlsx"%outdir, min_nAUC_to_beConsideredGrowing)
 
 
 
-    # DEBUG create_simple_fitness_table
+    #create_simple_fitness_table
 
     # save the dataframe with all the timepoonts
     save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.tab"%outdir)
@@ -2121,7 +2120,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     if measure_susceptibility is True:
 
         # if some bad spots are in conc==0, set also as bad spots the others
-        # DEBUG rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
+        #rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
 
         #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
@@ -2146,7 +2145,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
-        # DEBUG create_simple_fitness_table_rel
+        #create_simple_fitness_table_rel
 
 
         # save the fitness df
@@ -2154,9 +2153,9 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         # get the susceptibility df for each sampleID
 
-        # DEBUG error_add_SMG
+        #error_add_SMG
 
-        # DEBUG error_only_create_susceptibility_for_drugs_with_more_than_1_conc
+        #error_only_create_susceptibility_for_drugs_with_more_than_1_conc
 
         susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
@@ -2170,7 +2169,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         ######### MAKE PLOTS ##########
 
-        # DEBUG error_heatmap
+        #error_heatmap
 
         # growth at different drugs (all plots)
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_extended"%outdir
@@ -2195,7 +2194,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     # rename files with experiment name
     #print(outdir, experiment_name)
 
-    # DEBUG error_you_need_to_rename_according_to_experiment_name
+    #error_you_need_to_rename_according_to_experiment_name
 
     #################
 

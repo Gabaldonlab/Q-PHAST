@@ -46,6 +46,7 @@ fun.opt = opt
 
 ##############################
 
+
 ##### RUN GUI TO DEFINE ARGUMENTS #########
 
 # only get arguments through GUI if there are no arguments passed
@@ -65,9 +66,11 @@ if len(sys.argv)==1:
     opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
     print("Writing results into the output folder '%s', using input files from '%s'"%(opt.output, opt.input))
 
-    # generate the 
+    # generate the image analysis
     fun.generate_analyze_images_window_optional()
 
+    # generate the closing window
+    fun.generate_closing_window("Running %s..."%fun.pipeline_name)
 
     # log
     print("Running pipeline...")

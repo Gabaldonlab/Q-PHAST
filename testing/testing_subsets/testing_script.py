@@ -25,6 +25,7 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     test_dir = "%s%s%s"%(CurDir, os_sep, d)
     input_dir = "%s%sinput"%(test_dir, os_sep)
     output_dir = "%s%soutput_Q-PHAST"%(test_dir, os_sep)
+    #fun.delete_folder(output_dir)
 
     # run the python script
     main_script = '%s%s..%s..%smain.py'%(CurDir, os_sep, os_sep, os_sep)

@@ -135,6 +135,40 @@ def generate_os_window():
     window.mainloop()
     if opt.os is None: raise ValueError("You should select the OS")
 
+def generate_closing_window(text_print):
+
+    """Generates a closing window, depending on the os"""
+
+    # define a function that closes window
+    def close_window(): 
+        window.destroy()
+
+    # init window
+    window = tk.Tk(); window.geometry("%ix50"%(window_width))
+    window.title(pipeline_name)
+
+    # add label
+    tk.Label(window, text="\n%s"%text_print, font=('Arial bold',15)).pack(side=tk.TOP)
+
+    # close after 1s
+    window.after(3000, close_window)
+
+    # in MAC do some extra steps
+    if opt.os in {"mac"}:
+
+        # run and close. this works on mac only
+        while True:
+            try: window.update()
+            except: break
+
+    # in other OSs
+    elif opt.os in {"windows", "linux"}: 
+
+        # run window
+        window.mainloop()
+
+    else: raise ValueError("OS %s is invalid"%opt.os)
+
 
 def generate_docker_image_window():
 
@@ -392,7 +426,6 @@ def generate_analyze_images_window_optional():
 
     # run and debug
     window.mainloop()
-
 
 def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
 
@@ -817,6 +850,9 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
                 print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
                 generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
 
+        # generate a succes window
+        generate_closing_window("Coordinates set. Checking them...")
+
         # run colonyzer in parallel using a subset of the images 
         run_docker_cmd("%s -e MODULE=analyze_images_run_colonyzer_subset_images"%(docker_cmd), [], print_cmd=False)
 
@@ -828,3 +864,7 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
         # create the final file indicating that this worked well
         if not any([file_is_empty(x) for x in final_files]): open(final_file_correct, "w").write("coodinates selection worked well...")
+
+        # generate a success 
+        generate_closing_window("Coordinates validated. Running analysis...")
+
