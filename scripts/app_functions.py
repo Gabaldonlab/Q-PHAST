@@ -1945,6 +1945,32 @@ def run_analyze_images_run_colonyzer_subset_images(outdir):
     print("colonyzer-based grid check took %.2fs"%(time.time()-start_time))
 
 
+
+
+def is_outlier(L, x, multiplier=1.5):
+
+    """
+    Determines whether x is an outlier in L using the interquartile range method.
+
+    Args:
+        L (list of floats): The list of floats to check for outliers.
+        x (float): The float to check for outlier status.
+
+    Returns:
+        bool: True if x is an outlier in L, False otherwise.
+    """
+
+    q1, q3 = np.percentile(L, [25, 75])
+    iqr = q3 - q1
+    lower_threshold = q1 - (multiplier * iqr)
+    upper_threshold = q3 + (multiplier * iqr)
+
+    # define outlier boolean
+    is_outlier_bool = (x < lower_threshold) or (x > upper_threshold)
+
+    return (is_outlier_bool, (lower_threshold, upper_threshold))
+
+
 def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_nAUC_to_beConsideredGrowing):
 
     """Generate an excel with the potential bad spots"""
@@ -1968,15 +1994,20 @@ def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_
     df_fitness_measurements = df_fitness_measurements[df_fitness_measurements.bad_spot==False]
 
     # get automatic bad spots
-    def get_bad_spot_reason_one_spot(r, median_nAUC, median_DT_h):
+    def get_bad_spot_reason_one_spot(r, nAUC_list, DT_h_list):
 
         # if none of them are growing, it can't be a bad spot
+        median_nAUC = np.median(nAUC_list)
         if median_nAUC<min_nAUC_to_beConsideredGrowing and r.nAUC<min_nAUC_to_beConsideredGrowing: return ""
 
         # define a list of reasons that indicate that this could be a bad spot
         reasons_bad_spot = []
-        if r.nAUC>(2*median_nAUC) or r.nAUC<(0.5*median_nAUC): reasons_bad_spot.append("nAUC=%.3f VS median nAUC=%.3f"%(r.nAUC, median_nAUC))
-        if r.DT_h>(2*median_DT_h) or r.DT_h<(0.5*median_DT_h): reasons_bad_spot.append("DT_h=%.3f VS median DT_h=%.3f"%(r.DT_h, median_DT_h))
+
+        outlier_nAUC, range_nAUC = is_outlier(nAUC_list, r.nAUC)
+        outlier_DT_h, range_DT_h = is_outlier(DT_h_list, r.DT_h)
+
+        if outlier_nAUC==True: reasons_bad_spot.append("nAUC=%.2f outside (%.2f, %.2f)"%(r.nAUC, range_nAUC[0], range_nAUC[1]))
+        if outlier_DT_h==True: reasons_bad_spot.append("DT_h=%.2f outside (%.2f, %.2f)"%(r.DT_h, range_DT_h[0], range_DT_h[1]))
 
         # if by both measures this is a bad spot
         if len(reasons_bad_spot)==2: return "; ".join(reasons_bad_spot)
@@ -1986,15 +2017,12 @@ def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_
 
     def get_df_bad_spots_one_strain_and_plate(df):
 
-        # if there are no replicates, return an empty df
-        if len(df)==1: return pd.DataFrame(columns=fields_spot) 
 
-        # define the median
-        median_nAUC = np.median(df.nAUC)
-        median_DT_h = np.median(df.DT_h)
+        # if there are <3 replicates, return an empty df
+        if len(df)<3: return pd.DataFrame(columns=fields_spot) 
 
         # define if it is a bad spot
-        df["bad_spot_reason"] = df[["nAUC", "DT_h"]].apply(get_bad_spot_reason_one_spot, median_nAUC=median_nAUC, median_DT_h=median_DT_h, axis=1)
+        df["bad_spot_reason"] = df[["nAUC", "DT_h"]].apply(get_bad_spot_reason_one_spot, nAUC_list=list(df.nAUC), DT_h_list=list(df.DT_h), axis=1)
 
         # return bad spots (if any)
         df = df[df.bad_spot_reason!=""]
@@ -2002,6 +2030,8 @@ def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_
 
     df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate)
     df_bad_spots_automatic["row"] = df_bad_spots_automatic.row.apply(lambda x: num_to_letter[x])
+
+    if len(df_bad_spots_automatic)>0: print("\n!!!!\nWARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC and DT_h. Potential bad spots have both nAUC and DT_h outside the (Q1 - 1.5·IQR, Q3 + 1.5·IQR) range for their strain. This method is approximate, so that you should manually check that these are actual bad spots, and then re-do the analysis (repeating all steps) setting them in the plate layout. To manually check them you can look at the images and also at the summary plots produced in here. The bad spots are saved in the file '%s'.\n!!!!\n"%(len(df_bad_spots_automatic), get_file(filename)))
 
     # merge and save
     df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
@@ -2105,12 +2135,10 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
 
     # create an excel with the potential bad spots
-    #potential_bad_spots
     generate_excel_w_potential_bad_spots(df_fitness_measurements, "%s/potential_bad_spots.xlsx"%outdir, min_nAUC_to_beConsideredGrowing)
 
 
-
-    #create_simple_fitness_table
+    create_simple_fitness_table
 
     # save the dataframe with all the timepoonts
     save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.tab"%outdir)
@@ -2120,7 +2148,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     if measure_susceptibility is True:
 
         # if some bad spots are in conc==0, set also as bad spots the others
-        #rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
+        rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
 
         #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
@@ -2145,17 +2173,18 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
-        #create_simple_fitness_table_rel
-
+        create_simple_fitness_table_rel
 
         # save the fitness df
         save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
 
         # get the susceptibility df for each sampleID
 
-        #error_add_SMG
+        error_add_SMG
 
-        #error_only_create_susceptibility_for_drugs_with_more_than_1_conc
+        error_only_create_susceptibility_for_drugs_with_more_than_1_conc
+
+        error_rAUC_set_last_conc
 
         susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
@@ -2169,7 +2198,7 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         ######### MAKE PLOTS ##########
 
-        #error_heatmap
+        error_heatmap
 
         # growth at different drugs (all plots)
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_extended"%outdir
@@ -2192,9 +2221,9 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
 
     # rename files with experiment name
-    #print(outdir, experiment_name)
+    print(outdir, experiment_name)
 
-    #error_you_need_to_rename_according_to_experiment_name
+    error_you_need_to_rename_according_to_experiment_name
 
     #################
 
