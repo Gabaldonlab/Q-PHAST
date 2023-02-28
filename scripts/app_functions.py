@@ -1150,7 +1150,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concen
 
     """Takes a fitness df and returns a df where each row is one sampleID-drug-fitness_estimate combination and there are susceptibility measurements (rAUC, MIC or initial fitness)"""
 
-    if file_is_empty(filename):
+    if file_is_empty(filename) or True:
 
         # init the df that will contain the susceptibility estimates
         df_all = pd.DataFrame()
@@ -1320,7 +1320,7 @@ def get_plate_quadrant(r):
     return quadrant
 
 
-def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration):
+def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration):
 
     """Plots, for each drug and fitness estimate, the growith curves """
 
@@ -1329,7 +1329,6 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
 
     # filter dfs
     df_fitness_measurements = cp.deepcopy(df_fitness_measurements[~(df_fitness_measurements.bad_spot)])
-    susceptibility_df = cp.deepcopy(susceptibility_df)
 
     # define the quadrant in the plate
     df_fitness_measurements["plate_quadrant"] = df_fitness_measurements.apply(get_plate_quadrant, axis=1)   
@@ -1352,7 +1351,7 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                          "rsquare": "rsquare between the fit and the data"}
 
     # make one plot for each drug and fitness_estimate
-    for drug in sorted(set(susceptibility_df.drug)):
+    for drug in sorted(set(df_fitness_measurements.drug)):
         
         relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
         for fitness_estimate in (relative_fitness_estimates + fitness_estimates):
@@ -1367,27 +1366,20 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
                 # get dfs
                 df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)].set_index("strain")
                 df_fit["drug"] = drug
-                df_suc = susceptibility_df[(susceptibility_df.drug==drug) & (susceptibility_df.fitness_estimate==fitness_estimate)].set_index("strain")
-
-                # add the conc0_is_growing
-                if len(df_suc)!=len(set(df_suc.replicateID)): raise ValueError("replicateID should be unique")
-                repID_to_is_growing_conc0 = dict(df_suc.set_index("replicateID").conc0_is_growing)
-                df_fit["conc0_is_growing"] = df_fit.replicateID.apply(lambda repID: repID_to_is_growing_conc0[repID])
 
                 # define the figure layout depending on the number of strains
-                nstrains = len(set(susceptibility_df.strain))
+                nstrains = len(set(df_fitness_measurements.strain))
                 nrows = int(math.sqrt(nstrains))
                 ncols = int(nstrains/nrows)+1          
                 fig = plt.figure(figsize=(ncols*4.2, nrows*2.2))
 
                 # add subplots
-                for Is, strain in enumerate(sorted(set(susceptibility_df.strain))):
+                for Is, strain in enumerate(sorted(set(df_fitness_measurements.strain))):
 
                     # get the subplot
                     ax = plt.subplot(nrows, ncols, Is+1)
 
                     # define the dfs
-                    df_suc_s = df_suc.loc[{strain}]
                     df_plot = df_fit.loc[{strain}]
 
                     # go through each quadrant and add plot
@@ -1416,7 +1408,7 @@ def plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, p
 
                     description = "[%s] vs %s: %s"%(drug, fitness_estimate, desc)
                     if fitness_estimate.endswith("_rel"): description += " (relative to concentration==0)"
-                    description += "\nDashed lines show replicates with no growth at concentration==0 (nAUC<%.2f), ignored in susceptibility_measurements_simple.tab"%min_nAUC_to_beConsideredGrowing
+                    description += "\nDashed lines show replicates with no growth at concentration==0 (nAUC<%.2f), ignored in susceptibility_measurements_simple.csv"%min_nAUC_to_beConsideredGrowing
 
                     # add axes
                     if Is==2: ax.set_title("%s\n\n%s"%(description, strain))
@@ -1478,7 +1470,7 @@ def parse_excel_positions_plate_layout(df_all):
             # define the strains pos
             if concentrations_pos is None: continue # it is below the concentrations
 
-            if df_all.loc[Ir-1, Ic]=="1" and df_all.loc[Ir, Ic-1]=="A":
+            if df_all.loc[Ir-1, Ic]=="1" and df_all.loc[Ir-3, Ic]=="Strains distribution" and df_all.loc[Ir, Ic-1]=="A":
 
                 # validate that there are 12 columns
                 if list(df_all.loc[Ir-1, list(range(Ic, Ic+12))])==list(map(str, range(1, 13))):
@@ -1680,6 +1672,7 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
     # more debugs on drugs
     if measure_susceptibility is True and len(df_plate_layout_long[df_plate_layout_long.concentration==0.0])!=96: raise ValueError("There should be only one plate batch (with 96 rows in the plate layout table) with concentration==0")
 
+
     for d in all_drugs:
         df_d = df_plate_layout_long[(df_plate_layout_long.drug==d) & (df_plate_layout_long.concentration!=0)]
         set_strainTuples = {tuple(df_d[df_d.concentration==conc].strain) for conc in set(df_d.concentration)}
@@ -1689,7 +1682,9 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
         if measure_susceptibility is True:
             tuple_strains_no_drug = tuple(df_plate_layout_long[df_plate_layout_long.concentration==0].strain)
             if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
-        
+
+        for conc in sorted(set(df_d.concentration)):
+            if sum(df_d.concentration==conc)!=96: raise ValueError("There should be 96 spots in the df_plate_layout_long with concentration==%s. This is not the case, which may be because you provided multiple plates with this concentration for drug %s, which is not allowed."%(conc, d))
 
     return df_plate_layout_long, all_drugs, measure_susceptibility, experiment_name
 
@@ -2037,6 +2032,63 @@ def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_
     df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
     df_bad_spots[fields_spot].sort_values(by=["plate_batch", "plate", "strain", "row", "column"]).to_excel(filename, index=False)
 
+
+def generate_simplified_fitness_table(fitness_df, fitness_estimates, filename):
+
+    """Genrates a table where each row is one combination of plate_batch, plate, and strain, and it contains summary stats about the fitness estimates, discarding the bad spots"""
+
+    # keep df
+    fitness_df = cp.deepcopy(fitness_df)
+    fitness_df = fitness_df[~fitness_df.bad_spot]
+
+    # define a function that takes a slice of the df with the strains of one plate, and returns a row with summary stats
+    def get_row_simple_fitness_df_one_plate_batch_plate_and_strain(df):
+
+        # checks
+        if len(df[["drug", "concentration", "strain"]].drop_duplicates())!=1: raise ValueError("df should be len==1")
+
+        # init dict
+        data_dict = {"plate_batch":df.plate_batch.iloc[0], "plate":df.plate.iloc[0], "drug":df.drug.iloc[0], "concentration":df.concentration.iloc[0], "strain":df.strain.iloc[0], "# replicates":len(df)}
+
+        # debug
+        if len(df)!=len(set(df.replicateID)): raise ValueError("replicateIDs should be unique")
+        for f in fitness_estimates: 
+            check_no_nans_series(df[f])
+            if any(df[f]==np.inf): raise ValueError("there can't be infs in f")
+            if any(df[f]==-np.inf): raise ValueError("there can't be -infs in f")
+            if any(df[f]<0): raise ValueError("there can't be <0s in f")
+
+        # go through different fitness_estimates
+        for fe in fitness_estimates:
+
+            # round
+            all_vals = [get_clean_float_value(float(x)) for x in df[fe]]
+
+            # get the range of all replicates and the median
+            data_dict["median_%s"%fe] = get_clean_float_value(np.median(all_vals))
+            data_dict["mode_%s"%fe] = get_clean_float_value(get_mode(all_vals))
+            data_dict["range_%s"%fe] = "%s-%s"%(min(all_vals), max(all_vals))
+
+        return pd.Series(data_dict)
+
+
+    # get simple fitness df
+    simple_fitness_df = fitness_df.groupby(["plate_batch", "plate", "strain"]).apply(get_row_simple_fitness_df_one_plate_batch_plate_and_strain).reset_index(drop=True)
+
+    # write 
+    simple_fitness_df = simple_fitness_df[['drug', 'concentration', 'strain', '# replicates', 'median_nAUC', 'mode_nAUC', 'range_nAUC', 'median_DT_h', 'mode_DT_h', 'range_DT_h']].sort_values(by=['drug', 'concentration', 'strain'], ascending=True)
+    save_df_as_tab(simple_fitness_df, filename)
+
+
+def get_df_fitness_measurements_with_redefined_bad_spots_according_to_conc0(df_fitness_measurements):
+
+
+    """Takes the fitness df and re-defines the bad spot so that if there are bad spots in conc==0 it should redefine the bad spots"""
+
+    WORK_HERE
+
+    THINK_ABOUT_WHAT_HAPPENS_IF_YOU_HAVE_MORE_THAN_1_BAD_SPOT
+
 def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
 
     """
@@ -2134,49 +2186,100 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     for k in df_fitness_measurements.keys(): check_no_nans_series(df_fitness_measurements[k])
     for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
 
+    # save the dataframe with all the timepoonts
+    save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.csv"%outdir)
+
+    ########################################################################
+
+    ####### GENERATE FILES DERIVED FROM THE INTEGRATED ANALYSIS OF FITNESS DF #########
+
     # create an excel with the potential bad spots
     generate_excel_w_potential_bad_spots(df_fitness_measurements, "%s/potential_bad_spots.xlsx"%outdir, min_nAUC_to_beConsideredGrowing)
 
+    # add fields to the fitness df that are necessary to run the subsequent calculations
+    number_to_letter = dict(zip(range(1,9), list("ABCDEFGH")))
+    df_fitness_measurements["replicateID"] = df_fitness_measurements.row.apply(lambda x: number_to_letter[x]) + df_fitness_measurements.column.apply(str)
+    df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
+    df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
+    df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
 
-    create_simple_fitness_table
+    # create simple raw fitness table
+    print("There are %i bad spots specified in the plate layout"%(sum(df_fitness_measurements.bad_spot)))
+    generate_simplified_fitness_table(df_fitness_measurements, ["nAUC", "DT_h"], "%s/fitness_measurements_simple.csv"%outdir)
 
-    # save the dataframe with all the timepoonts
-    save_df_as_tab(df_growth_measurements_all_timepoints, "%s/growth_measurements_all_timepoints.tab"%outdir)
-
-    ########################################################################
+    ###################################################################################
 
     if measure_susceptibility is True:
 
         # if some bad spots are in conc==0, set also as bad spots the others
-        rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
+        df_fitness_measurements = get_df_fitness_measurements_with_redefined_bad_spots_according_to_conc0(df_fitness_measurements)
+        JADGJHGAGADJ
+
+        #rewire_the_bad_spots_to_consider_that_if_conc0_is_done_do_the_others
 
         #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
         # run the AST calculations based on all plates
         print_with_runtime("Getting the susceptibility measurements. Adding %s as a pseudocount to calculate log2 concentrations. Considering spots with a  nAUC<%s to be not growing. Calculations are only made on strains with at least %s concentrations..."%(pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc))
 
-        # add fields to the fitness df that are necessary to run the AST calculations
-        df_fitness_measurements["replicateID"] = "r" + df_fitness_measurements.row.apply(str) + "c" + df_fitness_measurements.column.apply(str)
-        df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
-        df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
-        df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
-
         # debugs
         for d in all_drugs:
+
+            # check that you have the expected samples
             expected_nsamples = len(set(df_fitness_measurements[(df_fitness_measurements.drug==d)].sampleID))
             if sum(df_fitness_measurements.concentration==0.0)!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
 
+            # check that, if you provided bad spots in conc==0, the other concs are also bad spots
+            df_d = df_fitness_measurements[(df_fitness_measurements.drug==d)]
+            bad_spots_conc0 = set(df_d[(df_d.bad_spot) & (df_d.concentration==0)].replicateID)
+
+            for conc in sorted(set(df_d[df_d.concentration>0].concentration)):
+
+                bad_spots_conc = set(df_d[(df_d.bad_spot) & (df_d.concentration==conc)].replicateID)
+                missing_bad_spots = bad_spots_conc0.difference(bad_spots_conc)
+                if len(missing_bad_spots)>0: raise ValueError("There are some spots %s that are bad in concentration==0 and not in drug==%s concentration==%s. This is not allowed. You should set them as bad spots in all concentrations."%(missing_bad_spots, d, conc))
+
+            print(bad_spots_conc0)
+
+            dakdahgdahgdahjgjahd
+
+
+
+
         # init variables
-        df_susceptibility = pd.DataFrame()
         fitness_estimates  = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
 
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
-        create_simple_fitness_table_rel
+        # get the susceptibility df
+        susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%outdir)
+
+        # generate a reduced, simple, susceptibility_df
+        simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
+        save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.csv"%outdir)
+
+        # add to fitness_df whether the conc0 is growing
+        repID_to_is_growing_conc0 = dict(susceptibility_df[["replicateID", "conc0_is_growing"]].drop_duplicates().set_index("replicateID").conc0_is_growing)
+        df_fitness_measurements["conc0_is_growing"] = df_fitness_measurements.replicateID.apply(lambda repID: repID_to_is_growing_conc0[repID])
+        if len(set(df_fitness_measurements.conc0_is_growing).difference({True, False}))>0: raise ValueError("conc0_is_growing should be boolean")
+
+        # create simple rel fitness table, only considering spots where the conc0 is growing
+        generate_simplified_fitness_table(df_fitness_measurements[df_fitness_measurements.conc0_is_growing==True], ["nAUC_rel", "DT_h_rel"], "%s/relative_fitness_measurements_simple.csv"%outdir)
+
 
         # save the fitness df
-        save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
+        save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%outdir)
+
+
+
+        print(df_fitness_measurements)
+
+        adkagdkghadkjadhkjahd
+
+        create_simple_fitness_table_rel
+
+
 
         # get the susceptibility df for each sampleID
 
@@ -2186,13 +2289,8 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         error_rAUC_set_last_conc
 
-        susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.tab"%outdir)
 
-        # generate a reduced, simple, susceptibility_df
-        simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
 
-        save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.tab"%outdir)
-        simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%outdir, index=False)
 
         ############################################################
 
@@ -2202,17 +2300,17 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         # growth at different drugs (all plots)
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_extended"%outdir
-        plot_growth_at_different_drugs(susceptibility_df, df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration)
+        plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration)
 
         # keep only some key indicators  
         outdir_drug_vs_fitness = "%s/drug_vs_fitness"%outdir; make_folder(outdir_drug_vs_fitness)
-        for drug in sorted(set(susceptibility_df.drug)):
+        for drug in sorted(set(df_fitness_measurements.drug)):
             outdir_drug_vs_fitness_drug = "%s/%s"%(outdir_drug_vs_fitness, drug); make_folder(outdir_drug_vs_fitness_drug)
             for fe in ["nAUC", "DT_h", "nAUC_rel", "DT_h_rel"]: copy_file("%s/%s/%s.pdf"%(outdir_drug_vs_fitness_extended, drug, fe), "%s/%s.pdf"%(outdir_drug_vs_fitness_drug, fe))
 
         ###############################
 
-    else: save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.tab"%outdir)
+    else: save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%outdir)
 
     ###### CLEAN #####
 
