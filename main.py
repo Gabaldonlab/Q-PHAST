@@ -122,8 +122,19 @@ plate_layout_file = "%s%s%s"%(opt.input, fun.get_os_sep(), fun.get_plate_layout_
 opt.output = fun.get_fullpath(opt.output)
 fun.make_folder(opt.output)
 
-# make the inputs_dir, where the small inputs will be stored
+# define the inputs_dir, where the small inputs will be stored
 tmp_input_dir = "%s%stmp_small_inputs"%(opt.output, fun.get_os_sep())
+copied_plate_layout = "%s%splate_layout.xlsx"%(tmp_input_dir, fun.get_os_sep())
+
+# if there was a previous run (copied_plate_layout exists), replace everything if the plate layout changed
+if not fun.file_is_empty(copied_plate_layout) and not fun.get_if_excels_are_equal(plate_layout_file, copied_plate_layout):
+
+    print("\nWARNING: You are providing a different plate layout than in a previous run\n")
+    fun.backwards_timer_print_text(15, 'WARNING: Thus, deleting previously-generated files in <output> in ')
+    fun.delete_folder(opt.output)
+    print("WARNING: Previously-generated files in <output> deleted.")
+
+# make the input dir
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
@@ -133,22 +144,32 @@ docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_conce
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
 
 # pass the plate layout to docker
-fun.copy_file(plate_layout_file, "%s%splate_layout.xlsx"%(tmp_input_dir, fun.get_os_sep()))
+fun.copy_file(plate_layout_file, copied_plate_layout)
 
 # get the corrected images
-print("\n\nSTEP 1/3: Getting cropped, flipped images with improved contrast...")
-fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s/analyze_images_process_images_correct_finish.txt"%opt.output])
+print("\n\nSTEP 1/5: Getting cropped, flipped images with improved contrast...")
+fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s%sanalyze_images_process_images_correct_finish.txt"%(opt.output, fun.get_os_sep())])
 
 # select the coordinates based on user input
-print("\n\nSTEP 2/3: Selecting the coordinates of the spots...")
+print("\n\nSTEP 2/5: Selecting the coordinates of the spots...")
 fun.get_colonyzer_coordinates_GUI(opt.output, docker_cmd)
 
-# get fitness and susceptibility measurements
-print("\n\nSTEP 3/3: Getting fitness and susceptibility measurements...")
-fun.run_docker_cmd("%s -e MODULE=analyze_images_get_measurements"%(docker_cmd), ["%s/analyze_images_get_measurements_correct_finish.txt"%opt.output])
+# get fitness measurements
+print("\n\nSTEP 3/5: Getting fitness measurements...")
+fun.run_docker_cmd("%s -e MODULE=get_fitness_measurements"%(docker_cmd), ["%s%sget_fitness_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep())])
+
+# validate bad spots
+print("\n\nSTEP 4/5: Manually-curating bad spots...")
+fun.generate_df_bad_spots_automatic_validated(opt.output)
+
+
+
+
+print(opt.output)
+adkjhgakjadhgad
 
 # clean
-for f in ['analyze_images_run_colonyzer_subset_images_correct_finish.txt', 'analyze_images_process_images_correct_finish.txt', 'analyze_images_get_measurements_correct_finish.txt']: fun.remove_file("%s%s%s"%(opt.output, fun.get_os_sep(), f))
+for f in ['analyze_images_run_colonyzer_subset_images_correct_finish.txt', 'analyze_images_process_images_correct_finish.txt', 'get_fitness_measurements_correct_finish.txt']: fun.remove_file("%s%s%s"%(opt.output, fun.get_os_sep(), f))
 fun.delete_folder(tmp_input_dir)
 
 

@@ -1,16 +1,17 @@
 # Functions that can be run in any OS
 
 # universal imports
-import os, sys, argparse, shutil, subprocess
+import os, sys, argparse, shutil, subprocess, time
 
 # environment checks
 print("Testing that the python packages are correctly installed...")
 try: 
 
-    # try to import PIL and tk
+    # try to import PIL and tk and pandas
     from PIL import Image as PIL_Image
     from PIL import ImageTk
     import tkinter as tk
+    import pandas as pd
 
 except:
 
@@ -32,6 +33,11 @@ except:
         print("ERROR: the library 'pillow' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
         sys.exit(1)
 
+    # pandas debug
+    try: import pandas as pd
+    except:
+        print("ERROR: the library 'pandas' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
+        sys.exit(1)
     # exit
     sys.exit(1)
 
@@ -867,4 +873,84 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
         # generate a success 
         generate_closing_window("Coordinates validated. Running analysis...")
+
+def get_if_excels_are_equal(file1, file2):
+
+    """Returns a boolean indicating if two excel files are the same"""
+
+    # load
+    df1 = pd.read_excel(file1).reset_index(drop=True).applymap(str)
+    df2 = pd.read_excel(file2).reset_index(drop=True).applymap(str)
+
+    # get each rows and cols
+    rows1 = list(df1.index)
+    rows2 = list(df2.index)
+
+    #print(df1, df2)
+
+    if rows1!=rows2: return False
+
+    # iterate through values
+    for r in rows1:
+
+        list1 = list(df1.loc[r])
+        list2 = list(df2.loc[r])
+
+        if list1!=list2: return False
+
+    return True
+
+def clear_last_line():
+
+    """ check the operating system and clear the last line accordingly """
+    
+    if os.name == 'nt':
+        # on Windows, move the cursor to the beginning of the last line and clear it
+        os.system('cls')
+        os.system('echo|set /p="_\b"')
+
+    else:
+        # on Mac and Linux, move the cursor to the beginning of the last line and clear it
+        print('\x1b[1A\x1b[2K', end='')
+
+def backwards_timer_print_text(seconds, text):
+
+    """Prints text in a backwards timer"""
+
+    for i in range(seconds, 0, -1):
+        clear_last_line()
+        print("%s %i seconds."%(text, i))
+        time.sleep(1)
+
+
+
+def generate_df_bad_spots_automatic_validated(outdir):
+
+
+    """Takes the output dir and generates the df with the automatic bad spots validated by manual validation."""
+
+
+    print(outdir)
+
+    addkhgahjagd
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

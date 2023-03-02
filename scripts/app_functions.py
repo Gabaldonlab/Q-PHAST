@@ -3,7 +3,7 @@
 # Functions of the image analysis pipeline. This should be imported from the main_env
 
 # imports
-import os, sys, time, random, string, shutil, math, itertools
+import os, sys, time, random, string, shutil, math, itertools, pickle
 import copy as cp
 from datetime import date
 import pandas as pd
@@ -13,7 +13,7 @@ import matplotlib.colors as mcolors
 import multiprocessing as multiproc
 import numpy as np
 from PIL import Image as PIL_Image
-from PIL import ImageEnhance
+from PIL import ImageEnhance, ImageDraw
 import PIL
 from sklearn.metrics import auc as sklearn_auc
 import matplotlib.pyplot as plt
@@ -2034,9 +2034,9 @@ def is_outlier(L, x, multiplier=1.5):
     return (is_outlier_bool, (lower_threshold, upper_threshold))
 
 
-def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_nAUC_to_beConsideredGrowing):
+def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beConsideredGrowing):
 
-    """Generate an excel with the potential bad spots"""
+    """Generate an df with the potential bad spots"""
 
     # keep
     df_fitness_measurements = cp.deepcopy(df_fitness_measurements)
@@ -2094,11 +2094,14 @@ def generate_excel_w_potential_bad_spots(df_fitness_measurements, filename, min_
     df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate)
     df_bad_spots_automatic["row"] = df_bad_spots_automatic.row.apply(lambda x: num_to_letter[x])
 
-    if len(df_bad_spots_automatic)>0: print("\n!!!!\nWARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC and DT_h. Potential bad spots have both nAUC and DT_h outside the (Q1 - 1.5·IQR, Q3 + 1.5·IQR) range for their strain. This method is approximate, so that you should manually check that these are actual bad spots, and then re-do the analysis (repeating all steps) setting them in the plate layout. To manually check them you can look at the images and also at the summary plots produced in here. The bad spots are saved in the file '%s'.\n!!!!\n"%(len(df_bad_spots_automatic), get_file(filename)))
+    if len(df_bad_spots_automatic)>0: print("\n!!!!\nWARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC and DT_h. Potential bad spots have both nAUC and DT_h outside the (Q1 - 1.5·IQR, Q3 + 1.5·IQR) range for their strain.\n!!!!\n"%(len(df_bad_spots_automatic)))
 
-    # merge and save
+    # merge
     df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
-    df_bad_spots[fields_spot].sort_values(by=["plate_batch", "plate", "strain", "row", "column"]).to_excel(filename, index=False)
+
+
+    # return
+    return df_bad_spots[fields_spot].sort_values(by=["plate_batch", "plate", "strain", "row", "column"])
 
 def make_flat_listOflists(LoL):
 
@@ -2203,11 +2206,91 @@ def get_df_fitness_measurements_with_extra_fields_when_conc0_is_available(fitnes
     return fitness_df
 
 
-def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
+def save_object(obj, filename):
+    
+    """ This is for saving python objects """
 
-    """
-    Runs the analyze_images module.
-    """
+    filename_tmp = "%s.tmp"%filename
+    remove_file(filename_tmp)
+    
+    with open(filename_tmp, 'wb') as output:  # Overwrites any existing file.
+        pickle.dump(obj, output, pickle.HIGHEST_PROTOCOL)
+
+    os.rename(filename_tmp, filename)
+
+def load_object_direct(filename):
+    
+    """ This is for loading python objects  in a fast way"""
+    
+    return pickle.load(open(filename,"rb"))
+
+
+def generate_merged_image_four_timepoints(plate_batch, plate, row, column, df_offsets, merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, box_size):
+
+    """Generates one merged image for a bad spot"""
+
+    # define the final merged image
+    final_image = "%s/%s_%s_%s_%s.tif"%(merged_images_bad_spots_dir, plate_batch, plate, row, column)
+    if file_is_empty(final_image):
+
+        # checks
+        if len(df_offsets[["row", "column"]].drop_duplicates())!=len(df_offsets): raise ValueError("combinations should be unique")
+        if len(df_offsets)<3: raise ValueError("There have to be >=3 replicates to infer bad spots")
+
+        # define images
+        all_images = plate_batch_to_images[plate_batch]
+        if len(all_images)<4: raise ValueError("There are <4 images for plate_batch %s. This does not allow for a proper analysis"%plate_batch)
+
+        # get subset of images
+        subset_images = [all_images[int(idx)] for idx in np.linspace(0, len(all_images)-1, 4)]
+
+        # Open the four images
+        dir_images = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate)
+        image1 = PIL_Image.open("%s/%s"%(dir_images, subset_images[0]))
+        image2 = PIL_Image.open("%s/%s"%(dir_images, subset_images[1]))
+        image3 = PIL_Image.open("%s/%s"%(dir_images, subset_images[2]))
+        image4 = PIL_Image.open("%s/%s"%(dir_images, subset_images[3]))
+
+        # Get the size of the first input image
+        width, height = image1.size
+        #compression = image1.info.get('compression', 'tiff_lzw')
+
+
+        # add the bad spots 
+        for img in [image1, image2, image3, image4]:
+
+            # init draw object
+            draw = ImageDraw.Draw(img)
+
+            # one square for each offset
+            for I, r in df_offsets.iterrows():
+
+                x = r.XOffset
+                y = r.YOffset
+
+                if r.row==row and r.column==column: color = "red"
+                else: color = "black"
+
+                draw.rectangle((x, y, x + box_size, y + box_size), outline=color, width=8) # x0, y0, x1, y1
+
+
+        # Create a new image with the size of the first input image and mode 'RGB'
+        merged_image = PIL_Image.new('RGB', (2*width, 2*height))
+
+        # Paste the four input images into the merged image
+        merged_image.paste(image1, (0, 0))
+        merged_image.paste(image2, (width, 0))
+        merged_image.paste(image3, (0, height))
+        merged_image.paste(image4, (width, height))
+
+        # Save the merged image with the same compression level as the first image
+        final_image_tmp = "%s.tmp.tif"%final_image
+        merged_image.save(final_image_tmp, quality=25, optimize=True)        
+        os.rename(final_image_tmp, final_image)
+
+def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing):
+
+    """Generates the fitness measurements."""
 
     #### LOAD DATA ####
 
@@ -2242,6 +2325,8 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
         # add the images
         plate_batch_to_images[plate_batch] = sorted({f for f in os.listdir(dest_processed_images_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
+
+
 
     # go through each plate and plate set and run the fitness calculations
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
@@ -2307,8 +2392,8 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
 
     ####### GENERATE FILES DERIVED FROM THE INTEGRATED ANALYSIS OF FITNESS DF #########
 
-    # create an excel with the potential bad spots
-    generate_excel_w_potential_bad_spots(df_fitness_measurements, "%s/potential_bad_spots.xlsx"%outdir, min_nAUC_to_beConsideredGrowing)
+    # create an df with the potential bad spots
+    df_bad_spots = generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beConsideredGrowing)
 
     # add fields to the fitness df that are necessary to run the subsequent calculations
     number_to_letter = dict(zip(range(1,9), list("ABCDEFGH")))
@@ -2316,6 +2401,54 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
     df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
     df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
     df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
+
+    # create merged images to validate bad spots
+    df_bad_spots_auto = df_bad_spots[df_bad_spots.bad_spot_reason!="manual setting in plate layout"]
+    if len(df_bad_spots_auto)>0:
+
+        # make folder
+        merged_images_bad_spots_dir = "%s/merged_images_bad_spots"%tmpdir
+        delete_folder(merged_images_bad_spots_dir); make_folder(merged_images_bad_spots_dir)
+
+        # define a df with the spot locations
+        df_offsets = cp.deepcopy(df_fitness_measurements[["plate_batch", "plate", "row", "column", "strain", "XOffset", "YOffset"]])
+        df_offsets["numeric_row"] = df_offsets.row
+        num_to_letter = dict(zip(range(1,9), "ABCDEFGH"))
+        df_offsets["row"] = df_offsets.row.apply(lambda x: num_to_letter[x])
+
+        # define the box size as the mean of distance between adjacent boxes. This is specific to each plate
+        df_offsets = df_offsets.set_index(["numeric_row", "column"], drop=False)
+        plate_batch_and_plate_to_box_size = {}
+        for plate_batch, plate in df_bad_spots_auto[["plate_batch", "plate"]].drop_duplicates().values:
+            df_offsets_plate = df_offsets[(df_offsets.plate_batch==plate_batch) & (df_offsets.plate==plate)]
+
+            box_size_rows = [df_offsets_plate.loc[(n_row+1, 1), "YOffset"] - df_offsets_plate.loc[(n_row, 1), "YOffset"] for n_row in range(1,8)]
+            box_size_cols = [df_offsets_plate.loc[(1, col+1), "XOffset"] - df_offsets_plate.loc[(1, col), "XOffset"] for col in range(1,12)]
+
+            plate_batch_and_plate_to_box_size[(plate_batch, plate)] = int(np.mean(box_size_rows + box_size_cols))
+
+        # run generation of images in parallel
+        df_offsets = df_offsets.set_index(["plate_batch", "plate", "strain"])
+        inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)]) for I, r in df_bad_spots_auto.iterrows()]
+        run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_four_timepoints)
+
+
+    # save files, marking the end
+    save_object(df_fitness_measurements, "%s/df_fitness_measurements.py"%tmpdir)
+    save_df_as_tab(df_bad_spots, "%s/df_bad_spots_automatic.tab"%tmpdir)
+
+
+    ###################################################################################
+
+
+def run_analyze_images_get_measurements_old(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
+
+    """
+    Runs the analyze_images module.
+    """
+
+
+    needs_to_be_checked
 
     # create simple raw fitness table
     print("There are %i bad spots specified in the plate layout"%(sum(df_fitness_measurements.bad_spot)))
@@ -2338,6 +2471,8 @@ def run_analyze_images_get_measurements(plate_layout_file, images_dir, outdir, k
             if sum(df_fitness_measurements.concentration==0.0)!=expected_nsamples: raise ValueError("There should be %i wells with concentration==0 for drug==%s. Note that this script expects the strains in each spot to be the same in all analyzed plates of the same drug."%(expected_nsamples, d))
 
         # add fields to the df_fitness_measurements that are only possible if the susceptibility is 0
+        rethink_how_you_define_correct_spots
+
         df_fitness_measurements = get_df_fitness_measurements_with_extra_fields_when_conc0_is_available(df_fitness_measurements)
         # two fields added:
         # 'rel_fitness_is_meaningful' is a boolean indicating if the conc0 is growing, conc0 is not a bad spot and this spot is not a bad spot. 
