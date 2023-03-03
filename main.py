@@ -155,9 +155,8 @@ print("\n\nSTEP 2/5: Selecting the coordinates of the spots...")
 fun.get_colonyzer_coordinates_GUI(opt.output, docker_cmd)
 
 # debug 
-fun.remove_file("%s%sget_fitness_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep()))
+#fun.remove_file("%s%sget_fitness_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep()))
 fun.remove_file("%s%stmp%sbad_spots_validated.csv"%(opt.output, fun.get_os_sep(), fun.get_os_sep()))
-
 
 # get fitness measurements
 print("\n\nSTEP 3/5: Getting fitness measurements...")

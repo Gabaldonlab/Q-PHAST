@@ -2536,6 +2536,7 @@ def run_analyze_images_get_measurements_old(plate_layout_file, images_dir, outdi
     Runs the analyze_images module.
     """
 
+    WRITE_EXCEL_BAD_SPOTS
 
     needs_to_be_checked
 

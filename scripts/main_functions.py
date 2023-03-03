@@ -1021,6 +1021,7 @@ def generate_df_bad_spots_automatic_validated(outdir):
         # add to df_bad_spots_validated those that are validated
         df_bad_spots_all_auto = df_bad_spots_all[df_bad_spots_all.bad_spot_reason!="manual setting in plate layout"]
 
+
         if len(df_bad_spots_all_auto)>0:
 
             for I, (idx,r) in enumerate(df_bad_spots_all_auto.iterrows()):
@@ -1030,6 +1031,8 @@ def generate_df_bad_spots_automatic_validated(outdir):
                 true_bad_spot = validate_automatic_bad_spot(r, tmpdir)
 
                 # add to df if necessary
+                use_pandas_concat_instead_of_append
+
                 if true_bad_spot is True: df_bad_spots_validated = df_bad_spots_validated.append(pd.DataFrame({0 : r}).transpose()).reset_index(drop=True)
 
         else: print("There are no potential bad spots according to our automatic detection.")
