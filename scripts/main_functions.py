@@ -156,8 +156,8 @@ def generate_closing_window(text_print):
     # add label
     tk.Label(window, text="\n%s"%text_print, font=('Arial bold',15)).pack(side=tk.TOP)
 
-    # close after 1s
-    window.after(3000, close_window)
+    # close after 1,5s
+    window.after(1500, close_window)
 
     # in MAC do some extra steps
     if opt.os in {"mac"}:
@@ -923,33 +923,120 @@ def backwards_timer_print_text(seconds, text):
         time.sleep(1)
 
 
+def validate_automatic_bad_spot(r, tmpdir):
+
+    """This function validates whether the bad spot in r is valid with a GUI promt. It returns True/False."""
+
+    # define dirs
+    images_dir = "%s%smerged_images_bad_spots"%(tmpdir, get_os_sep())
+    validation_dir = "%s%sbad_spot_validation"%(tmpdir, get_os_sep()); make_folder(validation_dir)
+
+    # create a validation file if not done
+    spot_str = "%s_%s_%s_%s"%(r.plate_batch, r.plate, r.row, r.column)
+    validation_file = "%s%s%s.txt"%(validation_dir, get_os_sep(), spot_str) 
+
+    # if the file does not exist, create it with the boolean
+    if file_is_empty(validation_file): 
+
+        # load the image file
+        image_file = "%s%s%s.tif"%(images_dir, get_os_sep(), spot_str) 
+
+        # get the size
+        image_object = PIL_Image.open(image_file)
+        image_w, image_h = image_object.size
+
+        # start the window     
+        window = tk.Tk()  
+        window.geometry("%ix%i"%(image_w, image_h))
+
+        # define image that can be added to canvas
+        img = ImageTk.PhotoImage(image_object)  
+
+        # create canvas 
+        canvas = tk.Canvas(window, width = image_w, height = image_h)  
+        canvas.pack()  
+        canvas.create_image(0, 0, anchor=tk.constants.NW, image=img) 
+
+        # define the title
+        window.title("[%s]=%s (%s-p%s), %s%i (%s) may be bad.   Press 'B' (Bad) if you AGREE | Press 'G' (Good) if you DISAGREE."%(r.drug, r.concentration, r.plate_batch, r.plate, r.row, r.column, r.strain))
+
+        # create buttons to set correct_coords
+        dict_data = {"is_bad_spot":None}
+        def bad_click(e): 
+            dict_data["is_bad_spot"] = True
+            window.destroy()
+
+        def good_click(e): 
+            dict_data["is_bad_spot"] = False
+            window.destroy()
+
+        window.bind("<b>", bad_click)
+        window.bind("<g>", good_click)
+
+        # run the window
+        window.mainloop() 
+
+        # debug and log
+        if dict_data["is_bad_spot"] is True: print("%s-plate%s spot %s%i IS a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
+        elif dict_data["is_bad_spot"] is False: print("%s-plate%s spot %s%i IS NOT a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
+        else: raise ValueError("you shoud click 'B' or 'G'")
+
+        # write file
+        open(validation_file, "w").write(str(dict_data["is_bad_spot"]))
+
+        # close window
+        generate_closing_window("Bad spot validated!")
+
+    # return the boolean of validation_file
+    is_valid_bad_spot = open(validation_file, "r").readlines()[0].strip()
+    if is_valid_bad_spot not in {"True", "False"}: raise ValueError("is_valid_bad_spot should be True/False")
+    return {"True":True, "False":False}[is_valid_bad_spot]
+
+def save_df_as_tab(df, file):
+
+    """Takes a df and saves it as tab"""
+
+    file_tmp = "%s.tmp"%file
+    df.to_csv(file_tmp, sep="\t", index=False, header=True)
+    os.rename(file_tmp, file)
+
 
 def generate_df_bad_spots_automatic_validated(outdir):
-
 
     """Takes the output dir and generates the df with the automatic bad spots validated by manual validation."""
 
 
-    print(outdir)
+    # define file
+    tmpdir = "%s%stmp"%(outdir, get_os_sep())
+    df_bad_spots_validated_file = "%s%sbad_spots_validated.csv"%(tmpdir, get_os_sep())
 
-    addkhgahjagd
+    if file_is_empty(df_bad_spots_validated_file):
 
+        # load df of bad spots
+        df_bad_spots_all = pd.read_csv("%s%sdf_bad_spots_automatic.tab"%(tmpdir, get_os_sep()), sep="\t")
 
+        # init the df with the manually-defined bad spots
+        df_bad_spots_validated = df_bad_spots_all[df_bad_spots_all.bad_spot_reason=="manual setting in plate layout"]
 
+        # add to df_bad_spots_validated those that are validated
+        df_bad_spots_all_auto = df_bad_spots_all[df_bad_spots_all.bad_spot_reason!="manual setting in plate layout"]
 
+        if len(df_bad_spots_all_auto)>0:
 
+            for I, (idx,r) in enumerate(df_bad_spots_all_auto.iterrows()):
+                print("Validating bad spot %i/%i..."%(I+1, len(df_bad_spots_all_auto)))
 
+                # define if this is a true bad spot
+                true_bad_spot = validate_automatic_bad_spot(r, tmpdir)
 
+                # add to df if necessary
+                if true_bad_spot is True: df_bad_spots_validated = df_bad_spots_validated.append(pd.DataFrame({0 : r}).transpose()).reset_index(drop=True)
 
+        else: print("There are no potential bad spots according to our automatic detection.")
 
-
-
-
-
-
-
-
-
+        # write
+        print("There are %i bad spots defined after manual validation."%(len(df_bad_spots_validated)))
+        save_df_as_tab(df_bad_spots_validated, df_bad_spots_validated_file)
 
 
 

@@ -13,7 +13,7 @@ import matplotlib.colors as mcolors
 import multiprocessing as multiproc
 import numpy as np
 from PIL import Image as PIL_Image
-from PIL import ImageEnhance, ImageDraw
+from PIL import ImageEnhance, ImageDraw, ImageFont
 import PIL
 from sklearn.metrics import auc as sklearn_auc
 import matplotlib.pyplot as plt
@@ -2010,7 +2010,7 @@ def run_analyze_images_run_colonyzer_subset_images(outdir):
 
 
 
-def is_outlier(L, x, multiplier=1.5):
+def is_outlier(L, x, multiplier=2.5):
 
     """
     Determines whether x is an outlier in L using the interquartile range method.
@@ -2041,16 +2041,13 @@ def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beCon
     # keep
     df_fitness_measurements = cp.deepcopy(df_fitness_measurements)
 
-    # log
-    print_with_runtime("Generating excel with automatically-inferred potential bad spots...")
-
     # init df with manually-defined bad spots
     num_to_letter = dict(zip(range(1,9), "ABCDEFGH"))
     df_bad_spots = df_fitness_measurements[df_fitness_measurements.bad_spot==True]
     df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: num_to_letter[x])
     df_bad_spots["bad_spot_reason"] = "manual setting in plate layout"
 
-    fields_spot = ["plate_batch", "plate", "row", "column", "strain", "bad_spot_reason"]
+    fields_spot = ["plate_batch", "plate", "drug", "concentration", "row", "column", "strain", "bad_spot_reason"]
     df_bad_spots = df_bad_spots[fields_spot]
 
     # for the other spots, add them automatically
@@ -2067,13 +2064,13 @@ def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beCon
         reasons_bad_spot = []
 
         outlier_nAUC, range_nAUC = is_outlier(nAUC_list, r.nAUC)
-        outlier_DT_h, range_DT_h = is_outlier(DT_h_list, r.DT_h)
+        #outlier_DT_h, range_DT_h = is_outlier(DT_h_list, r.DT_h)
 
         if outlier_nAUC==True: reasons_bad_spot.append("nAUC=%.2f outside (%.2f, %.2f)"%(r.nAUC, range_nAUC[0], range_nAUC[1]))
-        if outlier_DT_h==True: reasons_bad_spot.append("DT_h=%.2f outside (%.2f, %.2f)"%(r.DT_h, range_DT_h[0], range_DT_h[1]))
+        #if outlier_DT_h==True: reasons_bad_spot.append("DT_h=%.2f outside (%.2f, %.2f)"%(r.DT_h, range_DT_h[0], range_DT_h[1]))
 
         # if by both measures this is a bad spot
-        if len(reasons_bad_spot)==2: return "; ".join(reasons_bad_spot)
+        if len(reasons_bad_spot)==1: return "; ".join(reasons_bad_spot)
 
         # else it is not
         else: return ""
@@ -2094,7 +2091,7 @@ def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beCon
     df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate)
     df_bad_spots_automatic["row"] = df_bad_spots_automatic.row.apply(lambda x: num_to_letter[x])
 
-    if len(df_bad_spots_automatic)>0: print("\n!!!!\nWARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC and DT_h. Potential bad spots have both nAUC and DT_h outside the (Q1 - 1.5·IQR, Q3 + 1.5·IQR) range for their strain.\n!!!!\n"%(len(df_bad_spots_automatic)))
+    if len(df_bad_spots_automatic)>0: print("\n!!!!\nWARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC. Potential bad spots have nAUC outside the (Q1 - 2.5·IQR, Q3 + 2.5·IQR) range for their strain. This method is approximate, so in a subsequent step you'll need to validate which of these spots are actually bad spots.\n!!!!\n"%(len(df_bad_spots_automatic)))
 
     # merge
     df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
@@ -2225,7 +2222,7 @@ def load_object_direct(filename):
     return pickle.load(open(filename,"rb"))
 
 
-def generate_merged_image_four_timepoints(plate_batch, plate, row, column, df_offsets, merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, box_size):
+def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offsets, df_growth, merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, box_size):
 
     """Generates one merged image for a bad spot"""
 
@@ -2237,27 +2234,27 @@ def generate_merged_image_four_timepoints(plate_batch, plate, row, column, df_of
         if len(df_offsets[["row", "column"]].drop_duplicates())!=len(df_offsets): raise ValueError("combinations should be unique")
         if len(df_offsets)<3: raise ValueError("There have to be >=3 replicates to infer bad spots")
 
+        ###### CREATE IMAGES ####
+
         # define images
         all_images = plate_batch_to_images[plate_batch]
-        if len(all_images)<4: raise ValueError("There are <4 images for plate_batch %s. This does not allow for a proper analysis"%plate_batch)
+        if len(all_images)<3: raise ValueError("There are <3 images for plate_batch %s. This does not allow for a proper analysis"%plate_batch)
 
         # get subset of images
-        subset_images = [all_images[int(idx)] for idx in np.linspace(0, len(all_images)-1, 4)]
+        subset_images = [all_images[int(idx)] for idx in np.linspace(0, len(all_images)-1, 3)]
 
         # Open the four images
         dir_images = "%s/%s_plate%i"%(processed_images_dir_each_plate, plate_batch, plate)
         image1 = PIL_Image.open("%s/%s"%(dir_images, subset_images[0]))
         image2 = PIL_Image.open("%s/%s"%(dir_images, subset_images[1]))
         image3 = PIL_Image.open("%s/%s"%(dir_images, subset_images[2]))
-        image4 = PIL_Image.open("%s/%s"%(dir_images, subset_images[3]))
 
         # Get the size of the first input image
         width, height = image1.size
         #compression = image1.info.get('compression', 'tiff_lzw')
 
-
-        # add the bad spots 
-        for img in [image1, image2, image3, image4]:
+        # add the bad spots in the first three quadrants
+        for img in [image1, image2, image3]:
 
             # init draw object
             draw = ImageDraw.Draw(img)
@@ -2265,28 +2262,117 @@ def generate_merged_image_four_timepoints(plate_batch, plate, row, column, df_of
             # one square for each offset
             for I, r in df_offsets.iterrows():
 
+                # define locations
                 x = r.XOffset
                 y = r.YOffset
 
+                # add rectangle
                 if r.row==row and r.column==column: color = "red"
                 else: color = "black"
-
                 draw.rectangle((x, y, x + box_size, y + box_size), outline=color, width=8) # x0, y0, x1, y1
 
+        # define a size of the textbox to add ttiles
+        size_textbox = int(height/10)
 
         # Create a new image with the size of the first input image and mode 'RGB'
-        merged_image = PIL_Image.new('RGB', (2*width, 2*height))
+        merged_image = PIL_Image.new('RGB', (2*width, 2*height + 2*size_textbox), (255, 255, 255))
 
         # Paste the four input images into the merged image
-        merged_image.paste(image1, (0, 0))
-        merged_image.paste(image2, (width, 0))
-        merged_image.paste(image3, (0, height))
-        merged_image.paste(image4, (width, height))
+        merged_image.paste(image1, (0, size_textbox))
+        merged_image.paste(image2, (width, size_textbox))
+        merged_image.paste(image3, (0, height + size_textbox*2))
+
+        #########################
+
+        ###### CREATE GROWTH CURVES PLOT ######
+
+        # define is potential bad spot
+        df_growth["type spot"] = ((df_growth.row==row) & (df_growth.column==column)).map({True:"potential bad spot", False:"other spots"})
+        df_growth["spot"] = df_growth.row + df_growth.column.apply(str)
+
+
+        # checks
+        if len(df_growth[["Expt.Time", "spot"]].drop_duplicates())!=len(df_growth): raise ValueError("for each spot there should be one timepoint for one timepoint")
+
+        # init figure to mimic the ones of the images
+        dpi = 100
+        fig_size = (width/dpi, height/dpi)
+        fig = plt.figure(figsize=fig_size)
+
+        # create
+        sns.set(font_scale=2)
+        ax = sns.lineplot(data=df_growth, x="Expt.Time", y="Growth", hue="type spot", units="spot",  estimator=None, lw=3, palette={"potential bad spot":"red", "other spots":"black"})
+
+        # save
+        filename_curves = "%s.growth_curves.png"%final_image
+        fig.savefig(filename_curves, bbox_inches='tight', dpi=dpi)
+        plt.close(fig)
+
+        # add to the merged image
+        image_curves = PIL_Image.open(filename_curves)
+        merged_image.paste(image_curves, (width + size_textbox, height + int(size_textbox*2.5)))
+
+        #######################################
+
+        #### ADD TITLES AND SAVE ######
+
+        # add the titles of the images
+        draw_merged = ImageDraw.Draw(merged_image)
+
+        # define the font 
+        fontsize = int(width/18)
+        font = ImageFont.truetype("/opt/conda/envs/main_env/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSansMono.ttf", fontsize)
+
+        # define the titles of the four quadrants
+        title_texts = []
+        for image_name in subset_images:
+            day = image_name.split("_")[-2]
+            timepoint = image_name.split("_")[-1].split(".")[0]
+            title_texts.append("%s/%s/%s, %s:%s"%(day[0:4], day[4:6], day[6:8], timepoint[0:2], timepoint[2:4]))
+
+        # add the title of the curves
+        title_texts.append("Growth curves")
+
+        # add titles
+        for I,text in enumerate(title_texts):
+
+            # get the text size
+            w, h = draw.textsize(text, font=font)
+
+            # get coords
+            if I==0:
+                text_x = int((width - w) / 2)
+                text_y = int((size_textbox - h) / 2)
+
+            elif I==1:
+                text_x = width + int((width - w) / 2)
+                text_y = int((size_textbox - h) / 2)
+
+            elif I==2:
+                text_x = int((width - w) / 2)
+                text_y = size_textbox + height + int((size_textbox - h) / 2)
+
+            elif I==3:
+                text_x = width + int((width - w) / 2)
+                text_y = size_textbox + height + int((size_textbox - h) / 2)
+            
+            # add 
+            draw_merged.text((text_x, text_y), text, fill="black", font=font)
+
+        # generate downsized_image_file
+        original_w, original_h = merged_image.size
+        factor_resize = 900/original_w
+        merged_image = merged_image.resize((int(original_w*factor_resize), int(original_h*factor_resize)))
+
+        # remove the image of the curves
+        remove_file(filename_curves)
 
         # Save the merged image with the same compression level as the first image
         final_image_tmp = "%s.tmp.tif"%final_image
-        merged_image.save(final_image_tmp, quality=25, optimize=True)        
+        merged_image.save(final_image_tmp)
         os.rename(final_image_tmp, final_image)
+
+        ###############################
 
 def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing):
 
@@ -2391,6 +2477,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     ########################################################################
 
     ####### GENERATE FILES DERIVED FROM THE INTEGRATED ANALYSIS OF FITNESS DF #########
+    print_with_runtime("Detecting bad spots...")
 
     # create an df with the potential bad spots
     df_bad_spots = generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beConsideredGrowing)
@@ -2416,6 +2503,10 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         num_to_letter = dict(zip(range(1,9), "ABCDEFGH"))
         df_offsets["row"] = df_offsets.row.apply(lambda x: num_to_letter[x])
 
+        # define a df with the growth at different timepoints
+        df_growth_all = cp.deepcopy(df_growth_measurements_all_timepoints[["plate_batch", "plate", "row", "column", "strain", "Growth", "Expt.Time"]]).set_index(["plate_batch", "plate", "strain"], drop=False)
+        df_growth_all["row"] = df_growth_all.row.apply(lambda x: num_to_letter[x])
+
         # define the box size as the mean of distance between adjacent boxes. This is specific to each plate
         df_offsets = df_offsets.set_index(["numeric_row", "column"], drop=False)
         plate_batch_and_plate_to_box_size = {}
@@ -2429,14 +2520,12 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
 
         # run generation of images in parallel
         df_offsets = df_offsets.set_index(["plate_batch", "plate", "strain"])
-        inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)]) for I, r in df_bad_spots_auto.iterrows()]
-        run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_four_timepoints)
-
+        inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), cp.deepcopy(df_growth_all.loc[{(r.plate_batch, r.plate, r.strain)}].reset_index(drop=True)), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)]) for I, r in df_bad_spots_auto.iterrows()]
+        run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_test_bad_spot)
 
     # save files, marking the end
     save_object(df_fitness_measurements, "%s/df_fitness_measurements.py"%tmpdir)
     save_df_as_tab(df_bad_spots, "%s/df_bad_spots_automatic.tab"%tmpdir)
-
 
     ###################################################################################
 
