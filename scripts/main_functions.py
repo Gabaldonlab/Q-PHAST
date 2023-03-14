@@ -4,7 +4,7 @@
 import os, sys, argparse, shutil, subprocess, time
 
 # environment checks
-print("Testing that the python packages are correctly installed...")
+#print("Testing that the python packages are correctly installed...")
 try: 
 
     # try to import PIL and tk and pandas
@@ -41,7 +41,7 @@ except:
     # exit
     sys.exit(1)
 
-print("All python packages are correctly installed.")
+#print("All python packages are correctly installed.")
 
 # specific (non-general) imports
 from pathlib import Path
@@ -59,6 +59,23 @@ pipeline_name = "Q-PHAST"
 
 # functions
 def get_fullpath(x): return os.path.realpath(x)
+
+
+def get_date_and_time_for_print():
+
+    """Gets the date of today"""
+
+    current_day = date.today().strftime("%d/%m/%Y")
+    current_time = time.strftime("%H:%M:%S", time.localtime())
+
+    return "[%s, %s]"%(current_day, current_time)
+
+def print_with_runtime(x):
+
+    """prints with runtime info"""
+
+    str_print = "%s %s"%(get_date_and_time_for_print(), x)
+    print(str_print)
 
 def get_fullpath_old(x):
 
@@ -439,14 +456,14 @@ def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
 
     # debug
     if all([not file_is_empty(f) for f in final_files]) and len(final_files)>0: 
-        print("All files are already generated, skipping this step...")
+        print_with_runtime("All files are already generated, skipping this step...")
         return
 
     # add the run_app.py command
     docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py 2>/output/docker_stderr.txt"'%opt.docker_image
 
     # log
-    if print_cmd is True: print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
+    #if print_cmd is True: print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
 
     # define the docker stderr
     docker_stderr = "%s%sdocker_stderr.txt"%(opt.output, get_os_sep())
@@ -454,7 +471,7 @@ def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
     # run
     try: run_cmd(docker_cmd)
     except: 
-        print("\n\nERROR: The run of the pipeline failed. This is the error log (check it to fix the error):\n---\n%s\n---\nExiting with code 1!"%("".join(open(docker_stderr, "r").readlines())))
+        print("\n\nERROR: The run of the docker image failed. The docker command is:\n---\n%s\n---\n\nThis is the error log (check it to fix the error):\n---\n%s\n---\nExiting with code 1!"%(docker_cmd.replace("2>/output/docker_stderr.txt",""), "".join(open(docker_stderr, "r").readlines())))
         sys.exit(1)
 
     # clean
@@ -575,7 +592,7 @@ def get_coordinates_are_correct_by_running_colonyzer_one_image(dest_processed_im
 
 
     #### RUN COLONYZER #######
-    print("checking that coordinates are correct...")
+    #print("checking that coordinates are correct...")
 
     # create a dir for analyze_images_run_colonyzer
     tmpdir = get_os_sep().join(dest_processed_images_dir.split(get_os_sep())[0:-2])
@@ -701,7 +718,7 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_pro
             if cropped_val<=0: raise ValueError("The cropped image has <=0 %s. %s"%(dim, error_log))
             if cropped_val>expected_val: raise ValueError("The %s of the cropped image is above the original one. %s"%(dim, error_log))
             if cropped_val<=(expected_val*0.3): raise ValueError("The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s"%(dim, cropped_val, expected_val, dim, error_log))
-            if cropped_val<=(expected_val*0.5): print("WARNING: The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s. If you are sure of this you can skip this warning."%(dim, cropped_val, expected_val, dim, error_log))
+            if cropped_val<=(expected_val*0.5): print_with_runtime("WARNING: The %s of the cropped image is %s, and the full image has %s. The cropped image should have a %s which is close to the original one. %s. If you are sure of this you can skip this warning."%(dim, cropped_val, expected_val, dim, error_log))
 
         # write tmp file
         non_coordinates_lines = [l for l in open(colonizer_coordinates_one_spot, "r").readlines() if l.startswith("#") or not l.startswith(latest_image)]
@@ -804,8 +821,8 @@ def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_b
     window.mainloop() 
 
     # debug and log
-    if dict_data["correct_coords"] is True: print("Selected coordinates are correct for %s-plate%s."%(plate_batch, plate))
-    elif dict_data["correct_coords"] is False: print("Selected coordinates are incorrect for %s-plate%s. Repeating coorinate selection..."%(plate_batch, plate))
+    if dict_data["correct_coords"] is True: pass # print("Selected coordinates are correct for %s-plate%s."%(plate_batch, plate))
+    elif dict_data["correct_coords"] is False: pass # print("Selected coordinates are incorrect for %s-plate%s. Repeating coorinate selection..."%(plate_batch, plate))
     else: raise ValueError("you shoud click 'Y' or 'N'")
 
 
@@ -845,6 +862,8 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
     # keep trying to generate these files while they are not generated
     while any([file_is_empty(x) for x in final_files]) or file_is_empty(final_file_correct):
 
+        print_with_runtime("Getting the coordinates...")
+
         # define the missing files
         missing_final_files = [x for x in final_files if file_is_empty(x)]
 
@@ -853,7 +872,7 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
             if file_is_empty("%s%sColonyzer.txt"%(dest_processed_images_dir, get_os_sep())):
 
-                print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
+                #print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
                 generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
 
         # generate a succes window
@@ -863,9 +882,9 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
         run_docker_cmd("%s -e MODULE=analyze_images_run_colonyzer_subset_images"%(docker_cmd), [], print_cmd=False)
 
         # show the images for validation, and remove the colonyzer coordinates that did not work well
-        print("Validation of the coordinates...")
+        print_with_runtime("Validating the coordinates...")
         for I, (dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate) in enumerate(args_coordinates):
-            print('Validating coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
+            #print('Validating coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
             validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_batch, plate, sorted_images)
 
         # create the final file indicating that this worked well
@@ -885,8 +904,6 @@ def get_if_excels_are_equal(file1, file2):
     # get each rows and cols
     rows1 = list(df1.index)
     rows2 = list(df2.index)
-
-    #print(df1, df2)
 
     if rows1!=rows2: return False
 
@@ -919,7 +936,7 @@ def backwards_timer_print_text(seconds, text):
 
     for i in range(seconds, 0, -1):
         clear_last_line()
-        print("%s %i seconds."%(text, i))
+        print_with_runtime("%s %i seconds."%(text, i))
         time.sleep(1)
 
 
@@ -977,8 +994,8 @@ def validate_automatic_bad_spot(r, tmpdir):
         window.mainloop() 
 
         # debug and log
-        if dict_data["is_bad_spot"] is True: print("%s-plate%s spot %s%i IS a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
-        elif dict_data["is_bad_spot"] is False: print("%s-plate%s spot %s%i IS NOT a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
+        if dict_data["is_bad_spot"] is True: pass # print("%s-plate%s spot %s%i IS a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
+        elif dict_data["is_bad_spot"] is False: pass # print("%s-plate%s spot %s%i IS NOT a bad spot"%(r.plate_batch, r.plate, r.row, r.column))
         else: raise ValueError("you shoud click 'B' or 'G'")
 
         # write file
@@ -1021,24 +1038,23 @@ def generate_df_bad_spots_automatic_validated(outdir):
         # add to df_bad_spots_validated those that are validated
         df_bad_spots_all_auto = df_bad_spots_all[df_bad_spots_all.bad_spot_reason!="manual setting in plate layout"]
 
-
         if len(df_bad_spots_all_auto)>0:
 
+            print_with_runtime("Validating bad spots...")
+
             for I, (idx,r) in enumerate(df_bad_spots_all_auto.iterrows()):
-                print("Validating bad spot %i/%i..."%(I+1, len(df_bad_spots_all_auto)))
+                #print("Validating bad spot %i/%i..."%(I+1, len(df_bad_spots_all_auto)))
 
                 # define if this is a true bad spot
                 true_bad_spot = validate_automatic_bad_spot(r, tmpdir)
 
                 # add to df if necessary
-                use_pandas_concat_instead_of_append
+                if true_bad_spot is True: df_bad_spots_validated = pd.concat([df_bad_spots_validated, pd.DataFrame({0 : r}).transpose()]).reset_index(drop=True)
 
-                if true_bad_spot is True: df_bad_spots_validated = df_bad_spots_validated.append(pd.DataFrame({0 : r}).transpose()).reset_index(drop=True)
-
-        else: print("There are no potential bad spots according to our automatic detection.")
+        else: print_with_runtime("There are no potential bad spots according to our automatic detection.")
 
         # write
-        print("There are %i bad spots defined after manual validation."%(len(df_bad_spots_validated)))
+        print_with_runtime("There are %i bad spots defined after manual validation."%(len(df_bad_spots_validated)))
         save_df_as_tab(df_bad_spots_validated, df_bad_spots_validated_file)
 
 

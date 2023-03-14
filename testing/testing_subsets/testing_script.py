@@ -1,7 +1,7 @@
 # This is a python script to test that all the subsets testing work
 
 # imports
-import os, sys
+import os, sys, platform
 
 # define the os_sep
 if "/" in os.getcwd(): os_sep = "/"
@@ -27,9 +27,11 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     output_dir = "%s%soutput_Q-PHAST"%(test_dir, os_sep)
     #fun.delete_folder(output_dir)
 
+    running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.system()]
+
     # run the python script
     main_script = '%s%s..%s..%smain.py'%(CurDir, os_sep, os_sep, os_sep)
-    fun.run_cmd("python %s --os linux --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, input_dir, output_dir))
+    fun.run_cmd("python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, running_os, input_dir, output_dir))
 
 
 
