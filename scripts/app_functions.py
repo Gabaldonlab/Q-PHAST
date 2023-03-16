@@ -3,7 +3,7 @@
 # Functions of the image analysis pipeline. This should be imported from the main_env
 
 # imports
-import os, sys, time, random, string, shutil, math, itertools, pickle, scipy, zipfile
+import os, sys, time, random, string, shutil, math, itertools, pickle, scipy, zipfile, matplotlib
 import copy as cp
 from datetime import date
 import pandas as pd
@@ -13,13 +13,15 @@ import matplotlib.colors as mcolors
 import multiprocessing as multiproc
 import numpy as np
 from PIL import Image as PIL_Image
-from PIL import ImageEnhance, ImageDraw, ImageFont
+from PIL import ImageEnhance, ImageDraw, ImageFont, ImageColor
 import PIL
 from sklearn.metrics import auc as sklearn_auc
 import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import Counter
-
+from scipy.cluster import hierarchy
+import matplotlib.patches as patches
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
@@ -1200,7 +1202,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concen
 
     """
 
-    if file_is_empty(filename) or True:
+    if file_is_empty(filename):
 
         # init the df that will contain the susceptibility estimates
         df_all = pd.DataFrame()
@@ -1330,6 +1332,9 @@ def get_clean_float_value(x):
 
     """Gets a clean float value"""
 
+    # for non numeric, return the value
+    if type(x)==str or pd.isna(x): return x
+
     # ints
     if int(x)==x: return int(x)
 
@@ -1361,17 +1366,19 @@ def get_row_simple_susceptibility_df_one_strain_and_drug(df):
         all_vals = sorted(df[(~pd.isna(df[field]))][field])
 
         # round
-        all_vals = [get_clean_float_value(float(x)) for x in all_vals]
+        all_vals = [float(x) for x in all_vals]
 
         # get the range of all replicates and the median
         if len(all_vals)>0: 
-            data_dict["median_%s"%field_name] = get_clean_float_value(np.median(all_vals))
-            data_dict["mode_%s"%field_name] = get_clean_float_value(get_mode(all_vals))
-            data_dict["range_%s"%field_name] = "%s-%s"%(min(all_vals), max(all_vals))
+            data_dict["median_%s"%field_name] = np.median(all_vals)
+            data_dict["mode_%s"%field_name] = get_mode(all_vals)
+            data_dict["mad_%s"%field_name] = scipy.stats.median_absolute_deviation(all_vals)
+            data_dict["range_%s"%field_name] = "%s-%s"%(get_clean_float_value(min(all_vals)), get_clean_float_value(max(all_vals)))
 
         else: 
             data_dict["median_%s"%field_name] = np.nan
             data_dict["mode_%s"%field_name] = np.nan
+            data_dict["mad_%s"%field_name] = np.nan
             data_dict["range_%s"%field_name] = "no_data"
 
         # get the number of replicates
@@ -1482,6 +1489,166 @@ fe_to_description = {"K" : "Parameter of a generalised logistic model that is fi
                      "DT_h_goodR2": "max DT in hours. This is a numerical estimate from data, only considering fits with r2>0.9",
                      "rsquare": "rsquare between the fit and the data"}
 
+def convert_nans_to_0s(x):
+    if pd.isna(x): return 0.0
+    else: return x
+
+def get_annotationColor_on_bgcolor(bgcolor, threshold_gray=0.4):
+
+    """Takes a bgcolor and retrives the optimum color to write an annotation on. """
+
+    # change to RGB tuple
+    if type(bgcolor)==str and not bgcolor.startswith("#"): bgcolor = mcolors.to_rgb(bgcolor)
+
+    # debug
+    elif type(bgcolor)==str and bgcolor.startswith("#"): bgcolor = tuple([x/255 for x in ImageColor.getcolor(bgcolor, "RGB")])
+
+    # get the gray (a number between 0(black) and 1(white))
+    gray = np.mean(bgcolor, -1)
+
+    if gray>1: raise ValueError("gray can't be above 1. bgcolor %s is strange"%bgcolor)
+
+    if gray<threshold_gray: return "white"
+    else: return "black"
+
+def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estimates, experiment_name, min_nAUC_to_beConsideredGrowing):
+
+    """Plots a heatmap with the susceptibility data for each fitness estimate and drug"""
+
+    # make outdir
+    make_folder(plots_dir_all)
+
+    # define the drugs
+    all_drugs = sorted(set(susceptibility_df.drug))
+
+    # make one plot for each drug and fitness_estimate
+    for drug in all_drugs:
+        print_with_runtime("Plotting susceptibility heatmaps for drug=%s..."%(drug))
+
+        relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
+        for fitness_estimate in relative_fitness_estimates:
+
+            # define filename
+            plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
+            filename = "%s/%s_susceptibility_heatmap_by_%s.pdf"%(plots_dir, drug, fitness_estimate.replace("_rel", ""))
+
+            if file_is_empty(filename):
+
+                # get the simplified susceptibility_df, with one strain for eacg
+                simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate==fitness_estimate) & (susceptibility_df.drug==drug)].groupby(["strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
+
+                # make clustermap
+                df_plot = simple_susceptibility_df[["median_rAUC", "median_MIC50", "median_SMG-MIC50", "strain"]].set_index("strain")
+                df_plot_nonans = df_plot.applymap(convert_nans_to_0s)
+
+                # create the df to plot that is compatible with zscore
+                df_plot_nonans_zscore = pd.DataFrame(index=df_plot_nonans.index)
+                for col in df_plot_nonans.columns:
+                    if len(df_plot_nonans[col].unique()) == 1: df_plot_nonans_zscore[col] = 0
+                    else: df_plot_nonans_zscore[col] = scipy.stats.zscore(df_plot_nonans[col])
+
+                # init clustermap with the z-score of the three values, so that the strains are clustered based on that
+                g = sns.clustermap(df_plot_nonans_zscore, row_cluster=True, col_cluster=False, linecolor="gray", linewidth=0)
+                ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+
+                # change positions
+                hm_height_multiplier = 0.04
+                hm_width_multiplier = 0.04
+                distance_btw_boxes = 0.01
+                rd_width = 0.08
+                cbar_width = 0.04
+
+                hm_height = len(df_plot)*hm_height_multiplier
+                hm_width = len(df_plot.columns)*hm_width_multiplier
+
+                hm_pos = g.ax_heatmap.get_position()
+                cb_pos = g.ax_cbar.get_position()
+                hm_y0 = cb_pos.y1 - hm_height
+                g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
+
+                rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
+                g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
+
+                # remove colorbar
+                g.ax_cbar.remove()
+        
+                # change axis
+                fontsize_all = 16
+                max_conc = get_clean_float_value(simple_susceptibility_df.max_concentration.iloc[0])
+
+
+                estimate_to_label = {"median_rAUC":"rAUC$_{%s}$"%max_conc, "median_MIC50":"MIC$_{50}$", "median_SMG-MIC50":"SMG$_{50}$"}
+                g.ax_heatmap.set_xticklabels([estimate_to_label[e] for e in df_plot.columns], rotation=90, fontsize=fontsize_all)
+                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
+                g.ax_heatmap.set_xlabel("")
+                g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
+                g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
+
+                # create the axes for the heatmaps
+                cbar_w = hm_height_multiplier*0.9
+                cbar_h = hm_height_multiplier*3
+                
+                x0_cax = rd_pos.x0-distance_btw_boxes-3*cbar_w
+                y1_rd = rd_pos.y0+rd_pos.height
+
+                rAUC_cax = g.fig.add_axes([x0_cax, y1_rd - cbar_h, cbar_w, cbar_h])
+                MIC_cax = g.fig.add_axes([x0_cax, y1_rd - 2*cbar_h - (distance_btw_boxes)*6, cbar_w, cbar_h])
+                SMG_cax = g.fig.add_axes([x0_cax, y1_rd - 3*cbar_h - (2*distance_btw_boxes)*6, cbar_w, cbar_h])
+
+                # change things for each field
+                for Ic, (estimate, palette, cax) in enumerate([("rAUC", "gray_r", rAUC_cax), ("MIC50", "Blues", MIC_cax), ("SMG-MIC50","Reds", SMG_cax)]):
+
+                    # get the cmap
+                    sorted_vals = sorted(set(df_plot_nonans["median_%s"%estimate]).union({0}))
+                    val_to_color = get_value_to_color(sorted_vals, palette=palette, n=len(sorted_vals), type_color="hex", center=None)[0]
+
+                    # go through each strain
+                    for Ir, strain in enumerate(ordered_strains):
+
+                        # add the rectangle for the median
+                        val = df_plot.loc[strain, "median_%s"%estimate]
+                        if pd.isna(val): color = "white"
+                        else: color = val_to_color[val]
+
+                        rect = patches.Rectangle((Ic, Ir), 1, 1, linewidth=.5, edgecolor='gray', facecolor=color)
+                        g.ax_heatmap.add_patch(rect)
+
+                        # add things to each heatmap
+                        df = simple_susceptibility_df[(simple_susceptibility_df.strain==strain)]
+                        if len(df)==0: continue
+                        if len(df)!=1: raise ValueError("df should be 1")
+                        r = df.iloc[0]
+
+                        # add text for few replicates
+                        if r["replicates_%s"%estimate] in {0, 1}: g.ax_heatmap.text(Ic+0.5, Ir+0.5, {0:"X", 1:"1"}[r["replicates_%s"%estimate]], color=get_annotationColor_on_bgcolor(color), fontsize=fontsize_all, horizontalalignment="center", verticalalignment="center")
+
+                        # for more replicates, add circles for MAD
+                        else:
+                            lower_bound_median = max([0, r["median_%s"%estimate] - r["mad_%s"%estimate]])
+                            upper_bound_median = r["median_%s"%estimate] + r["mad_%s"%estimate]
+                            for Iv, val in enumerate([lower_bound_median, upper_bound_median]): 
+
+                                g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Ir+0.5], edgecolor="gray", facecolor=val_to_color[find_nearest(np.array(sorted(set(val_to_color.keys()))), val)],  s=25, linewidth=.4, zorder=2)
+
+                    # add colorbar
+                    cmap = plt.get_cmap(palette)
+                    norm = plt.Normalize(vmin=0, vmax=max(sorted_vals))
+                    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, ticks=[get_clean_float_value(y) for y in np.linspace(0, max(sorted_vals), 3)])
+                    cb.ax.tick_params(labelsize=fontsize_all-4)
+                    cax.set_title(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, pad=10, loc="center")
+                    #cb.set_label(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, rotation=270, labelpad=-1)
+                    cb.outline.set_visible(False)
+
+
+                # add description at the bottom
+                description = "rAUC (max [%s]=%s), 50%s Minimum Inhibitory Concentration (MIC)\nand Supra-MIC Growth (SMG) based on fitness estimate '%s'\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, max_conc, "%", fitness_estimate.replace("_rel", ""))
+
+                description += get_fe_description(fitness_estimate.replace("_rel", ""), 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
+                g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
+
+                filename_tmp = "%s.tmp.pdf"%filename
+                g.savefig(filename_tmp,  format='pdf', bbox_inches="tight")
+                os.rename(filename_tmp, filename)
 
 def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_all, fitness_estimates, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, experiment_name):
 
@@ -1506,7 +1673,7 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
 
             # define filename
             plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
-            filename = "%s/%s.pdf"%(plots_dir, fitness_estimate)
+            filename = "%s/[%s]_vs_%s_heatmap.pdf"%(plots_dir, drug, fitness_estimate)
 
             if file_is_empty(filename):
 
@@ -1568,14 +1735,6 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
 
                         for Iv, val in enumerate([r.lower_bound_median, r.upper_bound_median]): g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Is+0.5], edgecolor="gray", facecolor=val_to_color[val],  s=25, linewidth=.4)
 
-                # labels
-                g.ax_heatmap.set_xticklabels(sorted_concentrations, rotation=90, fontsize=fontsize_all)
-                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
-                g.ax_heatmap.set_xlabel("[%s]"%drug, fontsize=fontsize_all)
-                g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
-                g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
-                g.ax_cbar.set_ylabel(fitness_estimate, fontsize=fontsize_all)
-
                 # change positions
                 hm_height_multiplier = 0.04
                 hm_width_multiplier = 0.04
@@ -1587,22 +1746,33 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
                 hm_width = len(df_plot.columns)*hm_width_multiplier
 
                 hm_pos = g.ax_heatmap.get_position()
-                hm_y0 = (hm_pos.y0+hm_pos.height)-hm_height
+                cb_pos = g.ax_cbar.get_position()
+                hm_y0 = cb_pos.y1 - hm_height
+                #hm_y0 = (hm_pos.y0+hm_pos.height)-hm_height
                 g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
 
                 rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
                 g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
 
-                cbar_height = hm_pos.height / 3
+                cbar_height = hm_height_multiplier*4
                 g.ax_cbar.set_position([rd_pos.x0 - rd_width - distance_btw_boxes*8, rd_pos.y0 + hm_pos.height - cbar_height,cbar_width, cbar_height])
+
+                # labels
+                g.ax_heatmap.set_xticklabels(sorted_concentrations, rotation=90, fontsize=fontsize_all)
+                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
+                g.ax_heatmap.set_xlabel("[%s]"%drug, fontsize=fontsize_all)
+                g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
+                g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
+                g.ax_cbar.set_ylabel(fitness_estimate, fontsize=fontsize_all)
 
                 # add title
                 g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
 
                 # add description at the bottom
-                description = get_fe_description(fitness_estimate, 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
-                description += "\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available"
-                g.ax_heatmap.text(0, len(df_plot) + len(description.split("\n")), description, horizontalalignment='left', verticalalignment='bottom')
+                description = "[%s] vs fitness (estimated by '%s')\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, fitness_estimate)
+
+                description += get_fe_description(fitness_estimate, 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
+                g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
 
                 # save
                 filename_tmp = "%s.tmp.pdf"%filename
@@ -1656,12 +1826,19 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
     strain_to_repID_to_color = {}
     for s in sorted(set(df_fitness_measurements.strain)):
         all_reps = sorted(set(df_fitness_measurements[df_fitness_measurements.strain==s].replicateID))
-        strain_to_repID_to_color[s] = get_value_to_color(all_reps, palette="tab10", n=len(all_reps), type_color="hex")[0]
+
+        if len(all_reps)<=10: palette_reps = "tab10"
+        else: palette_reps = "tab20"
+        strain_to_repID_to_color[s] = get_value_to_color(all_reps, palette=palette_reps, n=len(all_reps), type_color="hex")[0]
 
     # filter dfs
     if type_data=="only_correct_spots": df_fitness_measurements = cp.deepcopy(df_fitness_measurements[df_fitness_measurements.idx_correct_rel_estimates])
     elif type_data=="all_data": df_fitness_measurements = cp.deepcopy(df_fitness_measurements)
     else: raise ValueError("invalid type_data")
+
+    # keep less strains and concs DEBUG
+    #df_fitness_measurements = df_fitness_measurements[(df_fitness_measurements.concentration<0.2)]
+    #df_fitness_measurements = df_fitness_measurements[(df_fitness_measurements.strain.isin({ "Cp-wt2", "Cp-wt1", "Ct-wt", "H20"}))]
 
     # define the drugs
     all_drugs = sorted(set(df_fitness_measurements[df_fitness_measurements.concentration!=0].drug))
@@ -1671,7 +1848,7 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
 
     # make one plot for each drug and fitness_estimate
     for drug in all_drugs:
-        print_with_runtime("plotting drug-vs-fitness curves for %s..."%(drug))
+        print_with_runtime("plotting drug-vs-fitness curves for %s (%s)..."%(drug, type_data))
 
         relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
         for fitness_estimate in (fitness_estimates + relative_fitness_estimates):
@@ -1680,7 +1857,7 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
 
             # define filename
             plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
-            filename = "%s/%s.pdf"%(plots_dir, fitness_estimate)
+            filename = "%s/[%s]_vs_%s_lines_%s.pdf"%(plots_dir, drug, fitness_estimate, {"all_data":"all", "only_correct_spots":"only_correct"}[type_data])
 
             if file_is_empty(filename):
 
@@ -1691,17 +1868,32 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
                 # get the sorted concentrations
                 sorted_concentrations = sorted(set(df_fit.concentration))
 
+                # add the concentration index
+                conc_to_IDX = dict(zip(sorted_concentrations, range(len(sorted_concentrations))))
+                df_fit["concentration_idx"] = df_fit.concentration.apply(lambda c: conc_to_IDX[c])
+
                 # define the figure layout depending on the number of strains
                 nstrains = len(set(df_fitness_measurements.strain))
                 ncols = 4
-                nrows = int(nstrains/ncols)+1
-                fig = plt.figure(figsize=(ncols*(len(sorted_concentrations)*0.6), nrows*2.9))
+                #nrows = int(nstrains/ncols)+1
+                nrows = math.ceil(nstrains/4)
+                fig = plt.figure(figsize=(ncols*5, nrows*2.9))
 
                 # define the median fitness estimate
                 median_fe_conc0 = np.median(df_fit[df_fit.concentration==0][fitness_estimate])
 
+                # init counters (1-based)
+                current_col = 0
+                current_row = 0
+
                 # add subplots
                 for Is, strain in enumerate(sorted(set(df_fitness_measurements.strain))):
+
+                    # update the col and row
+                    if (Is%ncols)==0: 
+                        current_col = 1
+                        current_row += 1
+                    else: current_col += 1
 
                     # get the subplot
                     ax = plt.subplot(nrows, ncols, Is+1)
@@ -1711,13 +1903,13 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
 
                     # plot
                     repID_to_color = strain_to_repID_to_color[strain]
-                    ax = sns.lineplot(x="log2_concentration", y=fitness_estimate, data=df_plot, hue="replicateID", style="replicateID", palette=repID_to_color, markers=True)
+                    ax = sns.lineplot(x="concentration_idx", y=fitness_estimate, data=df_plot, hue="replicateID", style="replicateID", palette=repID_to_color, markers=True)
 
                     # add squared bad spots 
                     if type_data=="all_data":
 
                         df_plot_bad = df_plot[~df_plot.idx_correct_rel_estimates]
-                        for I,r in df_plot_bad.iterrows(): plt.scatter(r.log2_concentration, r[fitness_estimate], s=100, edgecolors=repID_to_color[r.replicateID], facecolors="none", marker="s")
+                        for I,r in df_plot_bad.iterrows(): plt.scatter(r.concentration_idx, r[fitness_estimate], s=100, edgecolors=repID_to_color[r.replicateID], facecolors="none", marker="s")
 
                     # remove legend
                     #ax.get_legend().remove()
@@ -1729,7 +1921,8 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
                     for y in lines_y: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
 
                     # change the xtciks to have actual concentrations
-                    ax.set_xticks([np.log2(x+pseudocount_log2_concentration) for x in sorted_concentrations])
+                    #ax.set_xticks([np.log2(x+pseudocount_log2_concentration) for x in sorted_concentrations])
+                    ax.set_xticks(sorted(conc_to_IDX.values()))
                     ax.set_xticklabels([get_clean_float_value(x) for x in sorted_concentrations], rotation=90)
 
                     # get the description of the fitness estimate
@@ -1742,18 +1935,16 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
                     if Is==2: ax.set_title("%s\n\n%s"%(experiment_name, strain))
                     else: ax.set_title(strain)  
 
-                    #if I
-
                     # add xlabel
                     ax.set_xlabel("[%s]"%drug)
 
                     # in the first col of the last row, add text
-                    if ((Is)/nrows)==(nrows-1): 
+                    if current_col==1 and current_row==nrows:
                         upper_ylim = ax.get_ylim()[1]
-                        ax.text(0, -upper_ylim*2.1, description, horizontalalignment='left', verticalalignment='bottom')
+                        ax.text(0, - (2.2*upper_ylim), description, horizontalalignment='left', verticalalignment='bottom')
 
                 # adjust
-                plt.subplots_adjust(wspace=0.4, hspace=0.9)
+                plt.subplots_adjust(wspace=0.6, hspace=0.9)
 
                 # save
                 filename_tmp = "%s.tmp.pdf"%filename
@@ -1840,7 +2031,7 @@ def get_df_drugs(df_all, comp, conc):
         if val=="nan": break
         plate_batches_conc.append(val)
 
-    if plate_batches_comp!=plate_batches_conc: raise ValueError("the plate_batches are not the same between comp and conc")
+    if plate_batches_comp!=plate_batches_conc: raise ValueError("the plate_batches are not the same between compounds and concentrations layouts")
 
     # fill the df_drugs
     df_drugs = pd.DataFrame()
@@ -1851,8 +2042,8 @@ def get_df_drugs(df_all, comp, conc):
             concentration = df_all.loc[conc[0]+Ib+1, conc[1]+plate]
 
             if drug=="nan" and concentration=="nan": continue
-            elif drug=="nan" and concentration!="nan":  raise ValueError("conmpounds and concentrations layouts do not match")
-            elif drug!="nan" and concentration=="nan":  raise ValueError("conmpounds and concentrations layouts do not match")
+            elif drug=="nan" and concentration!="nan":  raise ValueError("compounds and concentrations layouts do not match")
+            elif drug!="nan" and concentration=="nan":  raise ValueError("compounds and concentrations layouts do not match")
 
             row_drugs = pd.DataFrame({0:{"plate_batch":plate_batch, "plate":plate, "drug":drug, "concentration":concentration}}).transpose()
             df_drugs = df_drugs.append(row_drugs).reset_index(drop=True)
@@ -1886,7 +2077,7 @@ def get_df_strains_layout(df_all, strains_pos):
             df_strains_layout.loc[row, col] = strain_name
 
             # checks
-            if strain_name in {"nan", ""}: raise ValueError("There can't be empty cells in the 96-strain grid of the plate layout. If you have empty spots, specify them as 'H2O' or 'empty'.")
+            if strain_name in {"nan", "", '0'}: raise ValueError("We found a strain called '%s'. There can't be empty cells in the 96-strain grid of the plate layout. If you have empty spots, specify them as 'H2O' or 'empty'. Note that '0' counts also as empty cell."%(strain_name))
 
     # change index
     df_strains_layout.index = list(range(1, 9))
@@ -1910,8 +2101,15 @@ def get_df_plate_layout_long_with_bad_spots(df_plate_layout_long, df_all, bad_sp
         for Ir, r in df_bad_spots.iterrows():
             if any(r.apply(str)=="nan"): raise ValueError("There are empty cells in the bad spots, which is not allowed")
 
+        # change the columns
         df_bad_spots.columns = ["plate_batch", "plate", "row", "column"]
+
+        # check the rows
         letter_to_number = dict(zip(list("ABCDEFGH"), range(1,9)))
+        strange_rows = set(df_bad_spots["row"]).difference(set(letter_to_number))
+        if len(strange_rows)>0: raise ValueError("Error in plate layout. In the bad spots, there are strange rows: %s. The rows should be A-H letters."%(strange_rows))
+
+        # change rows to numbers
         df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: letter_to_number[x])
 
         for f, function_format in [("plate_batch", str), ("plate", int), ("row", int), ("column", int)]: 
@@ -1921,7 +2119,7 @@ def get_df_plate_layout_long_with_bad_spots(df_plate_layout_long, df_all, bad_sp
         # checks
         for k in df_bad_spots.keys():
             strange_values = set(df_bad_spots[k]).difference(set(df_plate_layout_long[k]))
-            if len(strange_values)>0: raise ValueError("There are strange values in %s: %s"%(k, strange_values))
+            if len(strange_values)>0: raise ValueError("Error in plate layout. In the bad spots, there are strange values in %s: %s. Make sure that the bad spots have the same values of %s as the 'Compunds' and 'Concentrations'."%(k, strange_values, k))
 
         # merge
         df_bad_spots["bad_spot"] = True
@@ -1959,10 +2157,13 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
     experiment_name = str(df_all.loc[3, 10]).rstrip().lstrip()
     if experiment_name in {"nan", ""}: experiment_name = "Q-PHAST-experiment"
     experiment_name = str(experiment_name)
-    #print_with_runtime("The experiment name is '%s'"%experiment_name)
+    print_with_runtime("The experiment name is '%s'"%experiment_name)
 
     # define the df_drugs as in the old setting
     df_drugs = get_df_drugs(df_all, compounds_pos, concentrations_pos)
+
+    # check that the concentrations are unique
+    if len(df_drugs[["drug", "concentration"]].drop_duplicates())!=len(df_drugs): raise ValueError("In the plate layout, the combination of drug & concentration is not unique. There should be only one plate for any given drug and concentration.")
 
     # define whether to measire susceptibility as a function of the concentrations
     measure_susceptibility = True
@@ -2001,13 +2202,13 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
         if len(strange_vals)>0: raise ValueError("There are strange values in %s: %s"%(f, strange_vals))
 
     for plate_batch in set(df_plate_layout_long.plate_batch):
-        if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist"%plate_batch)
+        if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist. Make sure that there is one sub-folder with images for each plate batch (specified in the plate layout) inisde the input folder."%plate_batch)
 
     # define all the drugs
     all_drugs = sorted(set(df_plate_layout_long[df_plate_layout_long.concentration!=0.0].drug))
 
     # more debugs on drugs
-    if measure_susceptibility is True and len(df_plate_layout_long[df_plate_layout_long.concentration==0.0])!=96: raise ValueError("There should be only one plate batch (with 96 rows in the plate layout table) with concentration==0")
+    if measure_susceptibility is True and len(df_plate_layout_long[df_plate_layout_long.concentration==0.0])!=96: raise ValueError("There should be only one plate batch with concentration==0")
 
 
     for d in all_drugs:
@@ -2021,7 +2222,7 @@ def get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir):
             if next(iter(set_strainTuples))!=tuple_strains_no_drug: raise ValueError("For drug %s, the strains are not equal to drug==0 (they should be)"%(d))
 
         for conc in sorted(set(df_d.concentration)):
-            if sum(df_d.concentration==conc)!=96: raise ValueError("There should be 96 spots in the df_plate_layout_long with concentration==%s. This is not the case, which may be because you provided multiple plates with this concentration for drug %s, which is not allowed."%(conc, d))
+            if sum(df_d.concentration==conc)!=96: raise ValueError("There should be 96 spots in the df_plate_layout_long with concentration==%s. This is not the case, which may be because you provided multiple plates with this concentration for drug %s, which is not allowed. There should be only one plate with this concentration."%(conc, d))
 
     return df_plate_layout_long, all_drugs, measure_susceptibility, experiment_name
 
@@ -2045,7 +2246,7 @@ def get_df_plate_layout_and_all_drugs_from_long_format(plate_layout_file, images
         if len(strange_vals)>0: raise ValueError("There are strange values in %s: %s"%(f, strange_vals))
 
     for plate_batch in set(df_plate_layout.plate_batch):
-        if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist"%plate_batch)
+        if not os.path.isdir("%s/%s"%(images_dir, plate_batch)): raise ValueError("The subfolder <images>/%s should exist. Make sure that there is one sub-folder with images for each plate batch (specified in the plate layout) inisde the input folder."%plate_batch)
 
 
     # define all the drugs
@@ -2468,12 +2669,13 @@ def generate_simplified_fitness_table(fitness_df, fitness_estimates, filename, e
         for fe in fitness_estimates:
 
             # round
-            all_vals = [get_clean_float_value(float(x)) for x in df[fe]]
+            all_vals = [float(x) for x in df[fe]]
 
             # get the range of all replicates and the median
             data_dict["median_%s"%fe] = get_clean_float_value(np.median(all_vals))
             data_dict["mode_%s"%fe] = get_clean_float_value(get_mode(all_vals))
-            data_dict["range_%s"%fe] = "%s-%s"%(min(all_vals), max(all_vals))
+            data_dict["mad_%s"%fe] = get_clean_float_value(scipy.stats.median_absolute_deviation(all_vals))
+            data_dict["range_%s"%fe] = "%s-%s"%(get_clean_float_value(min(all_vals)), get_clean_float_value(max(all_vals)))
 
         return pd.Series(data_dict)
 
@@ -2482,7 +2684,7 @@ def generate_simplified_fitness_table(fitness_df, fitness_estimates, filename, e
     simple_fitness_df = fitness_df.groupby(["plate_batch", "plate", "strain"]).apply(get_row_simple_fitness_df_one_plate_batch_plate_and_strain).reset_index(drop=True)
 
     # write 
-    fields_fe = make_flat_listOflists([["median_%s"%fe, "mode_%s"%fe, "range_%s"%fe] for fe in fitness_estimates])
+    fields_fe = make_flat_listOflists([["median_%s"%fe, "mode_%s"%fe, "mad_%s"%fe, "range_%s"%fe] for fe in fitness_estimates])
     simple_fitness_df["experiment_name"] = experiment_name
     simple_fitness_df = simple_fitness_df[['drug', 'concentration', 'strain', '# replicates', 'experiment_name'] + fields_fe].sort_values(by=['drug', 'concentration', 'strain'], ascending=True)
 
@@ -2882,6 +3084,8 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
     Writes the integrated fitness and susceptibility measurements.
     """
 
+    print("Getting final tables and plots...")
+
     ######## PROCESS INPUTS #######
 
     # get plate layout df
@@ -2899,6 +3103,9 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
 
     ####### GENERAL FILES GENERATION #######
+
+    # init a list with the files to keep in main
+    files_main_output = []
 
     # load the fitness df
     df_fitness_measurements = load_object("%s/df_fitness_measurements.py"%tmpdir)
@@ -2938,6 +3145,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
     # create simple raw fitness table
     generate_simplified_fitness_table(df_fitness_measurements, ["nAUC"], "%s/fitness_measurements_simple.csv"%extended_outdir, experiment_name)
+    files_main_output.append("fitness_measurements_simple.xlsx")
 
     ########################################
 
@@ -2967,9 +3175,12 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         # init variables
         fitness_estimates  = ["K", "r", "nr", "nr_t", "maxslp", "maxslp_t", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
+        fitness_estimates_susc = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "AUC", "nAUC"] # these are estimates that are correlated to growth rate
+
 
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
+
 
         # add an idx that indicates if the row is valid for relative fitness an susceptibility measurements
         df_fitness_measurements["idx_correct_rel_estimates"] = ((df_fitness_measurements.conc0_is_growing) & ~(df_fitness_measurements.conc0_is_bad_spot) & (df_fitness_measurements.n_non0_concentrations_bad_spot<2) & ~(df_fitness_measurements.bad_spot))
@@ -2981,6 +3192,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         # create simple rel fitness table, only considering spots where the conc0 is growing, and only those with some concentration
         generate_simplified_fitness_table(df_fitness_measurements[(df_fitness_measurements.idx_correct_rel_estimates) & (df_fitness_measurements.concentration>0)], ["nAUC_rel"], "%s/relative_fitness_measurements_simple.csv"%extended_outdir, experiment_name)
+        files_main_output.append("relative_fitness_measurements_simple.xlsx")
 
         # measure susceptibility
         drug_to_nconcs = df_fitness_measurements[df_fitness_measurements.concentration!=0][["drug", "concentration"]].drop_duplicates().groupby("drug").apply(len)
@@ -2988,16 +3200,19 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         if any(drug_to_nconcs>=2):
 
             # get the susceptibility df
-            susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%extended_outdir, experiment_name)
+            susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates_susc, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%extended_outdir, experiment_name)
 
             # generate a reduced, simple, susceptibility_df
             simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
+            for f in ['median_MIC50', 'mode_MIC50', 'mad_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC']: simple_susceptibility_df[f] = simple_susceptibility_df[f].apply(get_clean_float_value)
+
             simple_susceptibility_df["experiment_name"] = experiment_name
             save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.csv"%extended_outdir)
             simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%extended_outdir, index=False)
+            files_main_output.append("susceptibility_measurements_simple.xlsx")
 
         else: print_with_runtime("All drugs have <2 non-0 concentrations, so that the susceptibility analysis is skipped.")
- 
+    
         ############################################################
 
         ######### MAKE PLOTS ##########
@@ -3010,33 +3225,45 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         outdir_drug_vs_fitness_extended_all_spots = "%s/drug_vs_fitness_lines_all_spots"%extended_outdir
         plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration, experiment_name, type_data="all_data", only_absolute_estimates=True)
 
+        # make the heatmap of the susceptibility measures
+        if any(drug_to_nconcs>=2): plot_heatmap_susceptibility(susceptibility_df, "%s/susceptibility_heatmaps"%extended_outdir, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing)
+
         # make heatmap of concentration-vs-fitness
         outdir_heatmaps_extended = "%s/drug_vs_fitness_heatmaps"%extended_outdir
         plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, experiment_name)
 
- 
         ###############################
-
-        restructure_outputs
-
-        #### RESTRUCTURE ####
-
-        # keep only some key indicators  
-        outdir_drug_vs_fitness = "%s/drug_vs_fitness"%outdir; make_folder(outdir_drug_vs_fitness)
-        for drug in all_drugs:
-            outdir_drug_vs_fitness_drug = "%s/%s"%(outdir_drug_vs_fitness, drug); make_folder(outdir_drug_vs_fitness_drug)
-            for fe in ["nAUC", "nAUC_rel"]: copy_file("%s/%s/%s.pdf"%(outdir_drug_vs_fitness_extended, drug, fe), "%s/%s.pdf"%(outdir_drug_vs_fitness_drug, fe))
-
-        #####################
 
     else: 
         print_with_runtime("WARNING: You did not provide concentration==0, so that the susceptibility and relative fitness measurements are not generated.")
         save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%extended_outdir)
 
-    restructure_outputs
+    #### RESTRUCTURE ####
 
-    adkdajhkadjh
+    # main files
+    for f in files_main_output: os.rename("%s/%s"%(extended_outdir, f), "%s/%s"%(outdir, f))
 
+    # plots
+    summary_plots_dir = "%s/summary_plots"%outdir; make_folder(summary_plots_dir)
+    some_plots_generated = False
+
+    for drug in all_drugs:
+
+        # make dir
+        summary_plots_dir_drug = "%s/%s"%(summary_plots_dir, drug); make_folder(summary_plots_dir_drug)
+
+        # copy various plots
+        all_interesting_plots = make_flat_listOflists([["%s/%s"%(root, f) for f in files if f.endswith(".pdf") and "_nAUC" in f and (f.startswith("[%s]_"%drug) or f.startswith("%s_"%drug))] for (root, dirs, files) in os.walk(extended_outdir)])
+
+        if len(all_interesting_plots)>0:
+            for f in all_interesting_plots: copy_file(f, "%s/%s"%(summary_plots_dir_drug, get_file(f)))
+            some_plots_generated = True
+
+        else: delete_folder(summary_plots_dir_drug)
+
+    if some_plots_generated is False: delete_folder(summary_plots_dir)
+
+    #####################
 
     ###### CLEAN #####
 

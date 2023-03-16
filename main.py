@@ -36,10 +36,14 @@ parser.add_argument("--input", dest="input", required=False, default=None, type=
 # optional arguments
 parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (forqca debugging).")
 parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
-parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images.")
 parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures.")
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.5, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
+
+
+# developer args
+parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images.")
+parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps")
 
 # parse
 opt = parser.parse_args()
@@ -142,6 +146,7 @@ if not fun.file_is_empty(copied_plate_layout) and not fun.get_if_excels_are_equa
     fun.print_with_runtime("WARNING: Previously-generated files in <output> deleted.")
 
 # make the input dir
+fun.make_folder(opt.output)
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
@@ -158,6 +163,10 @@ print("\n")
 fun.print_with_runtime("STEP 1/5: Getting cropped, flipped images with improved contrast...")
 fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s%sanalyze_images_process_images_correct_finish.txt"%(opt.output, fun.get_os_sep())])
 
+if opt.break_after=="step1": 
+    print("Exiting pipeline after step 1...")
+    sys.exit(0)
+
 # select the coordinates based on user input
 print("\n")
 fun.print_with_runtime("STEP 2/5: Selecting the coordinates of the spots...")
@@ -173,12 +182,14 @@ print("\n")
 fun.print_with_runtime("STEP 4/5: Manually-curating bad spots...")
 fun.generate_df_bad_spots_automatic_validated(opt.output)
 
+if opt.break_after=="step4": 
+    print("Exiting pipeline after step 4...")
+    sys.exit(0)
+
 # Get the relative fitness and susceptibility measurements
 print("\n")
 fun.print_with_runtime("STEP 5/5: Getting integrated fitness and susceptibility measurements...")
 fun.run_docker_cmd("%s -e MODULE=get_rel_fitness_and_susceptibility_measurements"%(docker_cmd), ["%s%sget_rel_fitness_and_susceptibility_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep())])
-
-check_cleaning
 
 # clean
 for f in ['analyze_images_run_colonyzer_subset_images_correct_finish.txt', 'analyze_images_process_images_correct_finish.txt', 'get_fitness_measurements_correct_finish.txt', 'get_rel_fitness_and_susceptibility_measurements_correct_finish.txt']: fun.remove_file("%s%s%s"%(opt.output, fun.get_os_sep(), f))
