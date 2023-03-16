@@ -1650,6 +1650,109 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
                 g.savefig(filename_tmp,  format='pdf', bbox_inches="tight")
                 os.rename(filename_tmp, filename)
 
+def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name):
+
+    """Plots the heatmap for one drug and fitness estimate"""
+
+    # get the number of strains and colors
+    nstrains = len(all_strains)
+
+    # define a df with the median and mad across replicates
+    if len(df_fit[["concentration", "strain", "row", "column"]].drop_duplicates())!=len(df_fit): raise ValueError("df_fit should be unique")
+
+    def get_r_fit_per_strain_one_conc_and_strain(df): 
+        mad_fe = scipy.stats.median_absolute_deviation(df[fitness_estimate])
+        median_fe = np.median(df[fitness_estimate])
+        upper_bound_median = median_fe + mad_fe
+        lower_bound_median = max([0, median_fe-mad_fe])
+
+        return pd.Series({"concentration":df.iloc[0].concentration, "strain":df.iloc[0].strain, "median %s"%fitness_estimate : median_fe, "lower_bound_median":lower_bound_median, "upper_bound_median":upper_bound_median, "# replicates":len(df)})
+
+    df_fit_per_strain = df_fit[["concentration", "strain", "row", "column", fitness_estimate]].groupby(["concentration", "strain"]).apply(get_r_fit_per_strain_one_conc_and_strain).reset_index(drop=True)
+
+    # get square df
+    fontsize_all = 16
+    sorted_concentrations = sorted(set(df_fit_per_strain.concentration))
+    df_plot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="median %s"%fitness_estimate)[sorted_concentrations]
+
+    # define the annot df to flag weird concentrations
+    def get_annot_for_n_reps(x):
+        if pd.isna(x): return "X"
+        elif x==1: return "1"
+        elif type(x)==int and x>1: return ""
+        else: raise ValueError("invalid x: %s"%x)
+
+    df_annot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="# replicates").loc[df_plot.index, df_plot.columns].applymap(get_annot_for_n_reps)
+
+    # get clustermap
+    max_val = max(df_fit_per_strain.upper_bound_median)
+    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap="rocket_r", linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="")
+
+    # map the value to color
+    all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
+    val_to_color = get_value_to_color(all_vals, palette="rocket_r", n=len(all_vals), type_color="hex", center=None)[0]
+
+    # get the ordered ytick labels as in g
+    ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+
+    # add the MAD for strains with >1 replicate
+    for Ic, conc in enumerate(sorted_concentrations):
+        for Is, strain in enumerate(ordered_strains):
+
+            # get row of df_fit_per_strain
+            df = df_fit_per_strain[(df_fit_per_strain.concentration==conc) & (df_fit_per_strain.strain==strain)]
+            if len(df)==0: continue
+            if len(df)!=1: raise ValueError("df should be 1")
+            r = df.iloc[0]
+            if r["# replicates"]<2: continue
+
+            for Iv, val in enumerate([r.lower_bound_median, r.upper_bound_median]): g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Is+0.5], edgecolor="gray", facecolor=val_to_color[val],  s=25, linewidth=.4)
+
+    # change positions
+    hm_height_multiplier = 0.04
+    hm_width_multiplier = 0.04
+    distance_btw_boxes = 0.01
+    rd_width = 0.08
+    cbar_width = 0.04
+
+    hm_height = len(df_plot)*hm_height_multiplier
+    hm_width = len(df_plot.columns)*hm_width_multiplier
+
+    hm_pos = g.ax_heatmap.get_position()
+    cb_pos = g.ax_cbar.get_position()
+    hm_y0 = cb_pos.y1 - hm_height
+    #hm_y0 = (hm_pos.y0+hm_pos.height)-hm_height
+    g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
+
+    rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
+    g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
+
+    cbar_height = hm_height_multiplier*4
+    g.ax_cbar.set_position([rd_pos.x0 - rd_width - distance_btw_boxes*8, rd_pos.y0 + hm_pos.height - cbar_height,cbar_width, cbar_height])
+
+    # labels
+    g.ax_heatmap.set_xticklabels(sorted_concentrations, rotation=90, fontsize=fontsize_all)
+    g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
+    g.ax_heatmap.set_xlabel("[%s]"%drug, fontsize=fontsize_all)
+    g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
+    g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
+    g.ax_cbar.set_ylabel(fitness_estimate, fontsize=fontsize_all)
+
+    # add title
+    g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
+
+    # add description at the bottom
+    description = "[%s] vs fitness (estimated by '%s')\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, fitness_estimate)
+
+    description += get_fe_description(fitness_estimate, 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
+    g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
+
+    # save
+    filename_tmp = "%s.tmp.pdf"%filename
+    g.savefig(filename_tmp,  bbox_inches="tight")
+    os.rename(filename_tmp, filename)
+
+
 def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_all, fitness_estimates, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, experiment_name):
 
     """For each drug and fe, make a heatmap where the rows are strains and the columns are concentrations."""
@@ -1660,12 +1763,18 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
     # filter dfs
     df_fitness_measurements = cp.deepcopy(df_fitness_measurements[df_fitness_measurements.idx_correct_rel_estimates])
 
-    # define the drugs
+    # define the drugs and strains
     all_drugs = sorted(set(df_fitness_measurements[df_fitness_measurements.concentration!=0].drug))
+    all_strains = sorted(set(df_fitness_measurements.strain))
+
+    # init the inputs_fn to run in parallel
+    inputs_fn = []
+
+    # log
+    print_with_runtime("Plotting drug-vs-fitness heatmaps...")
 
     # make one plot for each drug and fitness_estimate
     for drug in all_drugs:
-        print_with_runtime("Plotting drug-vs-fitness heatmaps for drug=%s..."%(drug))
 
         relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
         for fitness_estimate in (fitness_estimates + relative_fitness_estimates):
@@ -1678,106 +1787,13 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
             if file_is_empty(filename):
 
                 # get dfs
-                df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
+                df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)])
                 check_no_nans_series(df_fit[fitness_estimate])
 
-                # get the number of strains and colors
-                nstrains = len(set(df_fitness_measurements.strain))
+                # add to the 
+                inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name))
 
-                # define a df with the median and mad across replicates
-                if len(df_fit[["concentration", "strain", "row", "column"]].drop_duplicates())!=len(df_fit): raise ValueError("df_fit should be unique")
-
-                def get_r_fit_per_strain_one_conc_and_strain(df): 
-                    mad_fe = scipy.stats.median_absolute_deviation(df[fitness_estimate])
-                    median_fe = np.median(df[fitness_estimate])
-                    upper_bound_median = median_fe + mad_fe
-                    lower_bound_median = max([0, median_fe-mad_fe])
-
-                    return pd.Series({"concentration":df.iloc[0].concentration, "strain":df.iloc[0].strain, "median %s"%fitness_estimate : median_fe, "lower_bound_median":lower_bound_median, "upper_bound_median":upper_bound_median, "# replicates":len(df)})
-
-                df_fit_per_strain = df_fit[["concentration", "strain", "row", "column", fitness_estimate]].groupby(["concentration", "strain"]).apply(get_r_fit_per_strain_one_conc_and_strain).reset_index(drop=True)
-
-                # get square df
-                fontsize_all = 16
-                sorted_concentrations = sorted(set(df_fit_per_strain.concentration))
-                df_plot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="median %s"%fitness_estimate)[sorted_concentrations]
-
-                # define the annot df to flag weird concentrations
-                def get_annot_for_n_reps(x):
-                    if pd.isna(x): return "X"
-                    elif x==1: return "1"
-                    elif type(x)==int and x>1: return ""
-                    else: raise ValueError("invalid x: %s"%x)
-
-                df_annot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="# replicates").loc[df_plot.index, df_plot.columns].applymap(get_annot_for_n_reps)
-
-                # get clustermap
-                max_val = max(df_fit_per_strain.upper_bound_median)
-                g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap="rocket_r", linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="")
-
-                # map the value to color
-                all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
-                val_to_color = get_value_to_color(all_vals, palette="rocket_r", n=len(all_vals), type_color="hex", center=None)[0]
-
-                # get the ordered ytick labels as in g
-                ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
-
-                # add the MAD for strains with >1 replicate
-                for Ic, conc in enumerate(sorted_concentrations):
-                    for Is, strain in enumerate(ordered_strains):
-
-                        # get row of df_fit_per_strain
-                        df = df_fit_per_strain[(df_fit_per_strain.concentration==conc) & (df_fit_per_strain.strain==strain)]
-                        if len(df)==0: continue
-                        if len(df)!=1: raise ValueError("df should be 1")
-                        r = df.iloc[0]
-                        if r["# replicates"]<2: continue
-
-                        for Iv, val in enumerate([r.lower_bound_median, r.upper_bound_median]): g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Is+0.5], edgecolor="gray", facecolor=val_to_color[val],  s=25, linewidth=.4)
-
-                # change positions
-                hm_height_multiplier = 0.04
-                hm_width_multiplier = 0.04
-                distance_btw_boxes = 0.01
-                rd_width = 0.08
-                cbar_width = 0.04
-
-                hm_height = len(df_plot)*hm_height_multiplier
-                hm_width = len(df_plot.columns)*hm_width_multiplier
-
-                hm_pos = g.ax_heatmap.get_position()
-                cb_pos = g.ax_cbar.get_position()
-                hm_y0 = cb_pos.y1 - hm_height
-                #hm_y0 = (hm_pos.y0+hm_pos.height)-hm_height
-                g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
-
-                rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
-                g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
-
-                cbar_height = hm_height_multiplier*4
-                g.ax_cbar.set_position([rd_pos.x0 - rd_width - distance_btw_boxes*8, rd_pos.y0 + hm_pos.height - cbar_height,cbar_width, cbar_height])
-
-                # labels
-                g.ax_heatmap.set_xticklabels(sorted_concentrations, rotation=90, fontsize=fontsize_all)
-                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
-                g.ax_heatmap.set_xlabel("[%s]"%drug, fontsize=fontsize_all)
-                g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
-                g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
-                g.ax_cbar.set_ylabel(fitness_estimate, fontsize=fontsize_all)
-
-                # add title
-                g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
-
-                # add description at the bottom
-                description = "[%s] vs fitness (estimated by '%s')\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, fitness_estimate)
-
-                description += get_fe_description(fitness_estimate, 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
-                g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
-
-                # save
-                filename_tmp = "%s.tmp.pdf"%filename
-                g.savefig(filename_tmp,  bbox_inches="tight")
-                os.rename(filename_tmp, filename)
+    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate)
 
 def chunks(l, n):
     
@@ -1811,6 +1827,101 @@ def get_fe_description(fitness_estimate, type_data, min_nAUC_to_beConsideredGrow
 
     return get_string_split_every_x_words(description, 10)
 
+
+
+def plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name):
+
+    """For one fitness estimate and drug, plots the lineplots of conc-vs-fitness"""
+
+    # get the sorted concentrations
+    sorted_concentrations = sorted(set(df_fit.concentration))
+
+    # add the concentration index
+    conc_to_IDX = dict(zip(sorted_concentrations, range(len(sorted_concentrations))))
+    df_fit["concentration_idx"] = df_fit.concentration.apply(lambda c: conc_to_IDX[c])
+
+    # define the figure layout depending on the number of strains
+    nstrains = len(all_strains)
+    ncols = 4
+    #nrows = int(nstrains/ncols)+1
+    nrows = math.ceil(nstrains/4)
+    fig = plt.figure(figsize=(ncols*5, nrows*2.9))
+
+    # define the median fitness estimate
+    median_fe_conc0 = np.median(df_fit[df_fit.concentration==0][fitness_estimate])
+
+    # init counters (1-based)
+    current_col = 0
+    current_row = 0
+
+    # add subplots
+    for Is, strain in enumerate(all_strains):
+
+        # update the col and row
+        if (Is%ncols)==0: 
+            current_col = 1
+            current_row += 1
+        else: current_col += 1
+
+        # get the subplot
+        ax = plt.subplot(nrows, ncols, Is+1)
+
+        # define the dfs
+        df_plot = df_fit.loc[{strain}]
+
+        # plot
+        repID_to_color = strain_to_repID_to_color[strain]
+        ax = sns.lineplot(x="concentration_idx", y=fitness_estimate, data=df_plot, hue="replicateID", style="replicateID", palette=repID_to_color, markers=True)
+
+        # add squared bad spots 
+        if type_data=="all_data":
+
+            df_plot_bad = df_plot[~df_plot.idx_correct_rel_estimates]
+            for I,r in df_plot_bad.iterrows(): plt.scatter(r.concentration_idx, r[fitness_estimate], s=100, edgecolors=repID_to_color[r.replicateID], facecolors="none", marker="s")
+
+        # remove legend
+        #ax.get_legend().remove()
+        ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+        # add lines
+        lines_y = [0, 0.5, 1]
+        if median_fe_conc0>1: lines_y.append(median_fe_conc0)
+        for y in lines_y: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
+
+        # change the xtciks to have actual concentrations
+        #ax.set_xticks([np.log2(x+pseudocount_log2_concentration) for x in sorted_concentrations])
+        ax.set_xticks(sorted(conc_to_IDX.values()))
+        ax.set_xticklabels([get_clean_float_value(x) for x in sorted_concentrations], rotation=90)
+
+        # get the description of the fitness estimate
+        description = get_fe_description(fitness_estimate, type_data, min_nAUC_to_beConsideredGrowing)
+
+        # add to description
+        if type_data=="all_data": description += "\nOutlined spots were discarded in susceptibility and relative fitness analyses."
+
+        # add axes
+        if Is==2: ax.set_title("%s\n\n%s"%(experiment_name, strain))
+        else: ax.set_title(strain)  
+
+        # add xlabel
+        ax.set_xlabel("[%s]"%drug)
+
+        # in the first col of the last row, add text
+        if current_col==1 and current_row==nrows:
+            upper_ylim = ax.get_ylim()[1]
+            ax.text(0, - (2.2*upper_ylim), description, horizontalalignment='left', verticalalignment='bottom')
+
+    # adjust
+    plt.subplots_adjust(wspace=0.6, hspace=0.9)
+
+    # save
+    filename_tmp = "%s.tmp.pdf"%filename
+    fig.savefig(filename_tmp, bbox_inches='tight')
+    plt.close(fig)
+    os.rename(filename_tmp, filename)
+
+
+
 def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False):
 
     """
@@ -1840,15 +1951,21 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
     #df_fitness_measurements = df_fitness_measurements[(df_fitness_measurements.concentration<0.2)]
     #df_fitness_measurements = df_fitness_measurements[(df_fitness_measurements.strain.isin({ "Cp-wt2", "Cp-wt1", "Ct-wt", "H20"}))]
 
-    # define the drugs
+    # define the drugs and strains
     all_drugs = sorted(set(df_fitness_measurements[df_fitness_measurements.concentration!=0].drug))
+    all_strains = sorted(set(df_fitness_measurements.strain))
 
     # define the quadrant in the plate
     df_fitness_measurements["plate_quadrant"] = df_fitness_measurements.apply(get_plate_quadrant, axis=1)   
 
+    # define the inputs of the parallel function
+    inputs_fn = []
+
+    # log
+    print_with_runtime("plotting drug-vs-fitness curves (%s)..."%(type_data))
+
     # make one plot for each drug and fitness_estimate
     for drug in all_drugs:
-        print_with_runtime("plotting drug-vs-fitness curves for %s (%s)..."%(drug, type_data))
 
         relative_fitness_estimates = ["%s_rel"%f for f in fitness_estimates]
         for fitness_estimate in (fitness_estimates + relative_fitness_estimates):
@@ -1862,96 +1979,14 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
             if file_is_empty(filename):
 
                 # get dfs
-                df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)].set_index("strain")
+                df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)].set_index("strain"))
                 df_fit["drug"] = drug
 
-                # get the sorted concentrations
-                sorted_concentrations = sorted(set(df_fit.concentration))
+                # load inputs_fn
+                inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
 
-                # add the concentration index
-                conc_to_IDX = dict(zip(sorted_concentrations, range(len(sorted_concentrations))))
-                df_fit["concentration_idx"] = df_fit.concentration.apply(lambda c: conc_to_IDX[c])
-
-                # define the figure layout depending on the number of strains
-                nstrains = len(set(df_fitness_measurements.strain))
-                ncols = 4
-                #nrows = int(nstrains/ncols)+1
-                nrows = math.ceil(nstrains/4)
-                fig = plt.figure(figsize=(ncols*5, nrows*2.9))
-
-                # define the median fitness estimate
-                median_fe_conc0 = np.median(df_fit[df_fit.concentration==0][fitness_estimate])
-
-                # init counters (1-based)
-                current_col = 0
-                current_row = 0
-
-                # add subplots
-                for Is, strain in enumerate(sorted(set(df_fitness_measurements.strain))):
-
-                    # update the col and row
-                    if (Is%ncols)==0: 
-                        current_col = 1
-                        current_row += 1
-                    else: current_col += 1
-
-                    # get the subplot
-                    ax = plt.subplot(nrows, ncols, Is+1)
-
-                    # define the dfs
-                    df_plot = df_fit.loc[{strain}]
-
-                    # plot
-                    repID_to_color = strain_to_repID_to_color[strain]
-                    ax = sns.lineplot(x="concentration_idx", y=fitness_estimate, data=df_plot, hue="replicateID", style="replicateID", palette=repID_to_color, markers=True)
-
-                    # add squared bad spots 
-                    if type_data=="all_data":
-
-                        df_plot_bad = df_plot[~df_plot.idx_correct_rel_estimates]
-                        for I,r in df_plot_bad.iterrows(): plt.scatter(r.concentration_idx, r[fitness_estimate], s=100, edgecolors=repID_to_color[r.replicateID], facecolors="none", marker="s")
-
-                    # remove legend
-                    #ax.get_legend().remove()
-                    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-
-                    # add lines
-                    lines_y = [0, 0.5, 1]
-                    if median_fe_conc0>1: lines_y.append(median_fe_conc0)
-                    for y in lines_y: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
-
-                    # change the xtciks to have actual concentrations
-                    #ax.set_xticks([np.log2(x+pseudocount_log2_concentration) for x in sorted_concentrations])
-                    ax.set_xticks(sorted(conc_to_IDX.values()))
-                    ax.set_xticklabels([get_clean_float_value(x) for x in sorted_concentrations], rotation=90)
-
-                    # get the description of the fitness estimate
-                    description = get_fe_description(fitness_estimate, type_data, min_nAUC_to_beConsideredGrowing)
-
-                    # add to description
-                    if type_data=="all_data": description += "\nOutlined spots were discarded in susceptibility and relative fitness analyses."
-
-                    # add axes
-                    if Is==2: ax.set_title("%s\n\n%s"%(experiment_name, strain))
-                    else: ax.set_title(strain)  
-
-                    # add xlabel
-                    ax.set_xlabel("[%s]"%drug)
-
-                    # in the first col of the last row, add text
-                    if current_col==1 and current_row==nrows:
-                        upper_ylim = ax.get_ylim()[1]
-                        ax.text(0, - (2.2*upper_ylim), description, horizontalalignment='left', verticalalignment='bottom')
-
-                # adjust
-                plt.subplots_adjust(wspace=0.6, hspace=0.9)
-
-                # save
-                filename_tmp = "%s.tmp.pdf"%filename
-                fig.savefig(filename_tmp, bbox_inches='tight')
-                plt.close(fig)
-                os.rename(filename_tmp, filename)
-
+    # run in parallel
+    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug)
 
 def run_function_in_parallel(inputs_fn, parallel_fun):
 

@@ -21,7 +21,7 @@ running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.sys
 
 # test each of the samples that should work
 print("Testing four different types of data...")
-for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
+for d in ["Classic_spottest_subset", "AST_48h_subset", "Fitness_only_subset", "Stress_plates_subset"]:
     print("testing %s..."%d)
 
     # define the testdir
@@ -34,8 +34,7 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     # run the python script
     if fun.file_is_empty(finish_file):
 
-        fun.run_cmd("python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, running_os, input_dir, output_dir))
-
+        fun.run_cmd("python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, running_os, input_dir, output_dir))        
         open(finish_file, "w").write("finished")
 
 # test different plate layouts errors
