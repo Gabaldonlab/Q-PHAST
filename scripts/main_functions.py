@@ -775,7 +775,7 @@ def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_b
     # define the latest name with area infered
     latest_image = sorted_image_names[-1]
     image_name = "%s%soutput_diffims_greenlab_lc%sOutput_Images%s%s_AREA.png"%(colonyzer_runs_subset_dir_plate, get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
-    downsized_image_name = "%s.downsized.png"%(image_name)
+    downsized_image_name = "%s.ds.png"%(image_name)
 
     # generate downsized_image_name
     image_object = PIL_Image.open(image_name)

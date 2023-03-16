@@ -113,3 +113,6 @@ for p in sorted(os.listdir(playouts_dir)):
 
         # write finish file
         open(finish_file, "w").write("finished")
+
+
+print("\n\nSUCCESS!! Q-PHAST works as expected.")
