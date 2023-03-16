@@ -49,14 +49,13 @@ elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run
 # perform fitness measurements
 elif os.environ["MODULE"]=="get_fitness_measurements": fun.run_analyze_images_get_fitness_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]))
 
-elif os.environ["MODULE"]=="get_rel_fitness_and_susceptibility_measurements": 
-
-    fun.run_analyze_images_get_rel_fitness_and_susceptibility_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]))
-
-    # set permissions to be accessible in all cases
-    fun.run_cmd("chmod -R 777 %s"%OutDir)
+# final tables and plots
+elif os.environ["MODULE"]=="get_rel_fitness_and_susceptibility_measurements": fun.run_analyze_images_get_rel_fitness_and_susceptibility_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]))
 
 else: raise ValueError("The module is incorrect")
+
+# set permissions to be accessible in all cases
+fun.run_cmd("chmod -R 777 %s"%OutDir)
 
 ###############
 
