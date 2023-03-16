@@ -34,7 +34,7 @@ for d in ["Classic_spottest_subset", "AST_48h_subset", "Fitness_only_subset", "S
     # run the python script
     if fun.file_is_empty(finish_file):
 
-        fun.run_cmd("python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, running_os, input_dir, output_dir))        
+        fun.run_cmd("python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files --auto_accept"%(main_script, running_os, input_dir, output_dir))     
         open(finish_file, "w").write("finished")
 
 # test different plate layouts errors
@@ -69,7 +69,7 @@ for p in sorted(os.listdir(playouts_dir)):
         for f in os.listdir(images_dir_source): fun.copy_file("%s%s%s"%(images_dir_source, os_sep, f), "%s%s%s"%(images_dir_dest, os_sep, f))
 
         # define cmd
-        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files"%(main_script, running_os, input_dir, output_dir)
+        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --pseudocount_log2_concentration 0.1 --min_nAUC_to_beConsideredGrowing 0.5 --min_points_to_calculate_resistance_auc 4 --keep_tmp_files --auto_accept"%(main_script, running_os, input_dir, output_dir)
 
         # run a bit differently for different IDs
         if pID in {5}: cmd += " --break_after step1"

@@ -40,10 +40,10 @@ parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_c
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.5, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
 
-
-# developer args
-parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images.")
-parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps")
+# developer args 
+parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images. Only for developers.")
+parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
+parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 
 # parse
 opt = parser.parse_args()

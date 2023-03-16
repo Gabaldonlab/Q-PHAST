@@ -817,6 +817,14 @@ def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_b
     window.bind("<y>", yes_click)
     window.bind("<n>", no_click)
 
+    # if autoacceptance is set, kill the image after 1s
+    if opt.auto_accept is True: 
+        def close_window(): window.destroy()
+        window.after(1000, close_window)
+        dict_data["correct_coords"] = True
+
+    elif not opt.auto_accept is False: raise ValueError("auto_accept should be T/F")
+
     # run the window
     window.mainloop() 
 
@@ -990,6 +998,14 @@ def validate_automatic_bad_spot(r, tmpdir):
         window.bind("<b>", bad_click)
         window.bind("<g>", good_click)
 
+        # automatic validation
+        if opt.auto_accept is True:
+            def close_window(): window.destroy()
+            window.after(1000, close_window)
+            dict_data["is_bad_spot"] = True
+
+        elif not opt.auto_accept is False: raise ValueError("auto_accept should be T/F")
+
         # run the window
         window.mainloop() 
 
@@ -1002,7 +1018,7 @@ def validate_automatic_bad_spot(r, tmpdir):
         open(validation_file, "w").write(str(dict_data["is_bad_spot"]))
 
         # close window
-        generate_closing_window("Bad spot validated!")
+        #generate_closing_window("Bad spot validated!")
 
     # return the boolean of validation_file
     is_valid_bad_spot = open(validation_file, "r").readlines()[0].strip()
@@ -1050,6 +1066,9 @@ def generate_df_bad_spots_automatic_validated(outdir):
 
                 # add to df if necessary
                 if true_bad_spot is True: df_bad_spots_validated = pd.concat([df_bad_spots_validated, pd.DataFrame({0 : r}).transpose()]).reset_index(drop=True)
+
+            # closing windows
+            generate_closing_window("Bad spots validated!")
 
         else: print_with_runtime("There are no potential bad spots according to our automatic detection.")
 

@@ -23,6 +23,10 @@ from scipy.cluster import hierarchy
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+# set parms for matplotlib
+#plt.rcParams['font.family'] = 'Arial'
+matplotlib.use('Agg')
+
 # define dirs
 ScriptsDir = "/workdir_app/scripts"
 CondaDir =  "/opt/conda"
