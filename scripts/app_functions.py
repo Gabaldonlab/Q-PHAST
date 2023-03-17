@@ -22,6 +22,7 @@ from collections import Counter
 from scipy.cluster import hierarchy
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import traceback
 
 # set parms for matplotlib
 #plt.rcParams['font.family'] = 'Arial'
@@ -1658,6 +1659,14 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     """Plots the heatmap for one drug and fitness estimate"""
 
+    # skip
+    if not file_is_empty(filename): return
+
+    # set parms
+    matplotlib.use('Agg')
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+
     # get the number of strains and colors
     nstrains = len(all_strains)
 
@@ -1754,6 +1763,7 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
     # save
     filename_tmp = "%s.tmp.pdf"%filename
     g.savefig(filename_tmp,  bbox_inches="tight")
+    #plt.close(g)
     os.rename(filename_tmp, filename)
 
 
@@ -1770,9 +1780,6 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
     # define the drugs and strains
     all_drugs = sorted(set(df_fitness_measurements[df_fitness_measurements.concentration!=0].drug))
     all_strains = sorted(set(df_fitness_measurements.strain))
-
-    # init the inputs_fn to run in parallel
-    inputs_fn = []
 
     # log
     print_with_runtime("Plotting drug-vs-fitness heatmaps...")
@@ -1794,10 +1801,8 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
                 df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)])
                 check_no_nans_series(df_fit[fitness_estimate])
 
-                # add to the 
-                inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name))
-
-    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate)
+                # get heatmap 
+                plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name)
 
 def chunks(l, n):
     
@@ -1836,6 +1841,14 @@ def get_fe_description(fitness_estimate, type_data, min_nAUC_to_beConsideredGrow
 def plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name):
 
     """For one fitness estimate and drug, plots the lineplots of conc-vs-fitness"""
+
+    # skip if file already generated
+    if not file_is_empty(filename): return
+
+    # set matplotlib parms
+    matplotlib.use('Agg')
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
 
     # get the sorted concentrations
     sorted_concentrations = sorted(set(df_fit.concentration))
@@ -1990,18 +2003,40 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
                 inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
 
     # run in parallel
-    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug)
+    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug, ntries=2)
 
-def run_function_in_parallel(inputs_fn, parallel_fun):
+def run_function_in_parallel(inputs_fn, parallel_fun, ntries=1):
 
     """Runs any function in parallel"""
 
-    with multiproc.Pool(multiproc.cpu_count()) as pool:
+    # init float that indicates if it worked
+    fun_worked = False
 
-        pool.starmap(parallel_fun, inputs_fn, chunksize=1)
-        pool.close()
-        pool.terminate()
+    # try some times
+    for tryI in range(1, ntries+1):
 
+        try:
+
+            # run
+            with multiproc.Pool(multiproc.cpu_count()) as pool:
+
+                pool.starmap(parallel_fun, inputs_fn, chunksize=1)
+                pool.close()
+                pool.terminate()
+
+            # keep that it worked
+            fun_worked = True
+            break
+
+        except Exception as err:
+
+            # if it is the last one, print and error
+            if tryI==ntries: 
+                traceback.print_tb(err.__traceback__)
+                raise ValueError("Function %s did not work. Check the error traceback above."%(parallel_fun))
+
+    # debug. If you arrived here it should have worked
+    if fun_worked is False: raise ValueError("Function did not work")
 
 def get_only_element_of_list(x):
 

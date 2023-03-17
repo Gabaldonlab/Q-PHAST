@@ -450,7 +450,7 @@ def generate_analyze_images_window_optional():
     # run and debug
     window.mainloop()
 
-def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
+def run_docker_cmd(initial_docker_cmd, final_files, print_cmd=True):
 
     """Runs docker cmd with proper debugging"""
 
@@ -460,7 +460,7 @@ def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
         return
 
     # add the run_app.py command
-    docker_cmd += ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py 2>/output/docker_stderr.txt"'%opt.docker_image
+    docker_cmd = initial_docker_cmd + ' %s bash -c "source /opt/conda/etc/profile.d/conda.sh && conda activate main_env > /dev/null 2>&1 && /workdir_app/scripts/run_app.py 2>/output/docker_stderr.txt"'%opt.docker_image
 
     # log
     #if print_cmd is True: print("Running docker image with the following cmd:\n---\n%s\n---\n"%docker_cmd)
@@ -471,6 +471,11 @@ def run_docker_cmd(docker_cmd, final_files, print_cmd=True):
     # run
     try: run_cmd(docker_cmd)
     except: 
+
+        # give permissions to output
+        run_cmd('%s %s bash -c "chmod -R 777 /output"'%(initial_docker_cmd, opt.docker_image)) 
+
+        # print error log
         print("\n\nERROR: The run of the docker image failed. The docker command is:\n---\n%s\n---\n\nThis is the error log (check it to fix the error):\n---\n%s\n---\nExiting with code 1!"%(docker_cmd.replace("2>/output/docker_stderr.txt",""), "".join(open(docker_stderr, "r").readlines())))
         sys.exit(1)
 
@@ -833,6 +838,24 @@ def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_b
     elif dict_data["correct_coords"] is False: pass # print("Selected coordinates are incorrect for %s-plate%s. Repeating coorinate selection..."%(plate_batch, plate))
     else: raise ValueError("you shoud click 'Y' or 'N'")
 
+def generate_colonyzer_coordinates_one_plate_batch_and_plate_transfer_from_1st_plate(coords_file, coords_file_1st_plate, sorted_images):
+
+    """Transfers coordinates of the 1st plate"""
+
+    # get the coords of the first plate
+    coords_1st_plate_lines = open(coords_file_1st_plate, "r").readlines()
+    coords_1st_plate = ",".join(coords_1st_plate_lines[3].strip().split(",")[1:])
+
+    # init the final file with the first three lines
+    coords_lines = coords_1st_plate_lines[0:3]
+
+    # add each image
+    for img in sorted_images: coords_lines.append("%s,%s\n"%(img, coords_1st_plate))
+
+    # save
+    coords_file_tmp = "%s.tmp"%coords_file
+    open(coords_file_tmp, "w").write("".join(coords_lines))
+    os.rename(coords_file_tmp, coords_file)
 
 def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
 
@@ -875,13 +898,27 @@ def get_colonyzer_coordinates_GUI(outdir, docker_cmd):
         # define the missing files
         missing_final_files = [x for x in final_files if file_is_empty(x)]
 
+        # define the coordinates file of the 1st plate tested
+        coords_file_1st_plate = "%s%sColonyzer.txt"%(args_coordinates[0][0], get_os_sep())
+
         # get the corrdinates files
         for I, (dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate) in enumerate(args_coordinates):
 
-            if file_is_empty("%s%sColonyzer.txt"%(dest_processed_images_dir, get_os_sep())):
+            # define the final file
+            coords_file = "%s%sColonyzer.txt"%(dest_processed_images_dir, get_os_sep())
+            if I==0 and coords_file_1st_plate!=coords_file: raise ValueError("error in coords_file_1st_plate")
 
-                #print('Getting coordinates for plate_batch %s and plate %i %i/%i'%(plate_batch, plate, I+1, len(all_dirs)))
-                generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
+            # generate file
+            if file_is_empty(coords_file):
+
+                # default behavior: get coords manually
+                if opt.coords_1st_plate is False or I==0:
+                    generate_colonyzer_coordinates_one_plate_batch_and_plate_inHouseGUI(dest_processed_images_dir, coordinate_obtention_dir_plate, sorted_images, plate_batch, plate, docker_cmd)
+
+                # for I>0 if --coords_1st_plate, get the coordinates of the first plate
+                elif opt.coords_1st_plate is True and I>0:
+                    print("Getting coordinates of the first plate...")
+                    generate_colonyzer_coordinates_one_plate_batch_and_plate_transfer_from_1st_plate(coords_file, coords_file_1st_plate, sorted_images)
 
         # generate a succes window
         generate_closing_window("Coordinates set. Checking them...")

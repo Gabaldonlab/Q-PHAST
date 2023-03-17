@@ -44,6 +44,7 @@ parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points
 parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images. Only for developers.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
+parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
 
 # parse
 opt = parser.parse_args()
