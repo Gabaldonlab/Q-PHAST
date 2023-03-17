@@ -1683,16 +1683,21 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     df_fit_per_strain = df_fit[["concentration", "strain", "row", "column", fitness_estimate]].groupby(["concentration", "strain"]).apply(get_r_fit_per_strain_one_conc_and_strain).reset_index(drop=True)
 
+    # map nans to 0
+    def get_nan_to_0(x):
+        if pd.isna(x): return 0
+        else: return x
+
     # get square df
     fontsize_all = 16
     sorted_concentrations = sorted(set(df_fit_per_strain.concentration))
-    df_plot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="median %s"%fitness_estimate)[sorted_concentrations]
+    df_plot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="median %s"%fitness_estimate)[sorted_concentrations].applymap(get_nan_to_0)
 
     # define the annot df to flag weird concentrations
     def get_annot_for_n_reps(x):
         if pd.isna(x): return "X"
         elif x==1: return "1"
-        elif type(x)==int and x>1: return ""
+        elif (type(x)==int or int(x)==x) and x>1: return ""
         else: raise ValueError("invalid x: %s"%x)
 
     df_annot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="# replicates").loc[df_plot.index, df_plot.columns].applymap(get_annot_for_n_reps)
