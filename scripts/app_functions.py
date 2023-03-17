@@ -409,13 +409,13 @@ def process_image_rotation_and_contrast(Iimage, nimages, raw_image, processed_im
         os.rename(processed_image_tmp, processed_image)
 
 
-def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending, skip_contrast_correction):
+def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending, enhance_image_contrast):
 
     """Runs the processing of images for all images in one batch"""
 
     # log
-    if skip_contrast_correction is False: log_txt = "Increasing contrast and processing images"
-    if skip_contrast_correction is True: log_txt = "Processing images"
+    if enhance_image_contrast is True: log_txt = "Increasing contrast and processing images"
+    elif enhance_image_contrast is False: log_txt = "Processing images"
     log_txt += " for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch)
     print_with_runtime(log_txt)
 
@@ -432,9 +432,9 @@ def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_o
         # define the imageJ binary
         imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
 
-        # define the contrast as based on skip_contrast_correction
-        if skip_contrast_correction is True: line_contrast = ''
-        else: line_contrast = 'run("Enhance Contrast...", "saturated=0.3");',
+        # define the contrast as based on enhance_image_contrast
+        if enhance_image_contrast is True: line_contrast = 'run("Enhance Contrast...", "saturated=0.3");',
+        else: line_contrast = ''
 
         # create a macro to change the image
         lines = [
@@ -2371,7 +2371,7 @@ def save_folder_as_zip(input_dir_path, zip_filename):
     os.rename(zip_filename_tmp, zip_filename)
     
 
-def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, skip_contrast_correction):
+def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast):
 
     """Takes the images and generates processed images that are cropped to be one in each plate"""
 
@@ -2475,7 +2475,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, ski
     start_time_rotation_contrast = time.time()
 
     # rotate each plate set at the same time (not in parallel)
-    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_and_contrast_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, skip_contrast_correction)
+    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_and_contrast_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, enhance_image_contrast)
 
     # log
     #print_with_runtime("Rotating images and Improving contrast took %.3f seconds"%(time.time()-start_time_rotation_contrast))

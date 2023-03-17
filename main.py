@@ -41,7 +41,7 @@ parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beCon
 parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
 
 # developer args 
-parser.add_argument("--skip_contrast_correction", dest="skip_contrast_correction", required=False, default=False, action="store_true", help="Skips the contrast correction of images. Only for developers.")
+parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False, default=False, action="store_true", help="Enhances contrast of images. Only for developers.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
@@ -151,7 +151,7 @@ fun.make_folder(opt.output)
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -e skip_contrast_correction=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, opt.skip_contrast_correction, tmp_input_dir, opt.output, opt.input)
+docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -e enhance_image_contrast=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, opt.enhance_image_contrast, tmp_input_dir, opt.output, opt.input)
 
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
@@ -161,7 +161,7 @@ fun.copy_file(plate_layout_file, copied_plate_layout)
 
 # get the corrected images
 print("\n")
-fun.print_with_runtime("STEP 1/5: Getting cropped, flipped images with improved contrast...")
+fun.print_with_runtime("STEP 1/5: Getting cropped, flipped images...")
 fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s%sanalyze_images_process_images_correct_finish.txt"%(opt.output, fun.get_os_sep())])
 
 if opt.break_after=="step1": 

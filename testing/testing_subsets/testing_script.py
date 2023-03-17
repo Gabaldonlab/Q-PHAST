@@ -32,10 +32,22 @@ for d in ["Classic_spottest_subset", "AST_48h_subset", "Fitness_only_subset", "S
 
     # define the dirs
     test_dir = "%s%s%s"%(CurDir, os_sep, d)
-    input_dir = "%s%sinput"%(test_dir, os_sep)
+    input_dir_source = "%s%sinput"%(test_dir, os_sep)
 
-    if "out_in_desktop" in all_args: output_dir = "%s/Desktop/testing_Q-PHAST_%s"%(os.getenv("HOME"), d)
-    else: output_dir = "%s%soutput_Q-PHAST"%(test_dir, os_sep)
+    if "out_in_desktop" in all_args: 
+        output_dir = "%s/Desktop/testing_Q-PHAST_%s"%(os.getenv("HOME"), d)
+        input_dir = "%s/Desktop/testing_Q-PHAST_%s_input"%(os.getenv("HOME"), d)
+
+        if not os.path.isdir(input_dir):
+            print("Generating input...")
+            input_dir_tmp = "%s_tmp"%input_dir
+            fun.run_cmd("rsync -rv %s/ %s/"%(input_dir_source, input_dir_tmp))
+            os.rename(input_dir_tmp, input_dir)
+
+    else: 
+        output_dir = "%s%soutput_Q-PHAST"%(test_dir, os_sep)
+        input_dir = input_dir_source
+
     #fun.delete_folder(output_dir)
     finish_file = "%s%sfinished.txt"%(output_dir, os_sep)
 
@@ -88,8 +100,7 @@ for p in sorted(os.listdir(playouts_dir)):
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
 
         # run a bit differently for different IDs
-        if pID in {5}: cmd += " --break_after step1"
-        if pID in {11}: cmd += " --break_after step4"
+        if pID in {5, 11}: cmd += " --break_after step1"
 
         # redirect stdout
         stdout = "%s%sstdout.txt"%(input_dir, os_sep)
