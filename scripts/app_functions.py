@@ -409,14 +409,12 @@ def process_image_rotation_and_contrast(Iimage, nimages, raw_image, processed_im
         os.rename(processed_image_tmp, processed_image)
 
 
-def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending, enhance_image_contrast):
+def process_image_rotation_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending):
 
     """Runs the processing of images for all images in one batch"""
 
     # log
-    if enhance_image_contrast is True: log_txt = "Increasing contrast and processing images"
-    elif enhance_image_contrast is False: log_txt = "Processing images"
-    log_txt += " for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch)
+    log_txt = "Flipping images for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch)
     print_with_runtime(log_txt)
 
     # if there are no processed files
@@ -433,8 +431,8 @@ def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_o
         imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
 
         # define the contrast as based on enhance_image_contrast
-        if enhance_image_contrast is True: line_contrast = 'run("Enhance Contrast...", "saturated=0.3");',
-        else: line_contrast = ''
+        #if enhance_image_contrast is True: line_contrast = 'run("Enhance Contrast...", "saturated=0.3");',
+        #else: line_contrast = ''
 
         # create a macro to change the image
         lines = [
@@ -445,7 +443,6 @@ def process_image_rotation_and_contrast_all_images_batch(Ibatch, nbatches, raw_o
                  '  open(input_dir+list_images[i]);'
                  '  run("Flip Vertically");',
                  '  run("Rotate 90 Degrees Left");',
-                 '  %s'%line_contrast,
                  '  processed_image_name = "%s/" + replace(list_images[i], "%s", "tif");'%(processed_outdir_tmp, image_ending),
                  '  print(processed_image_name);',
                  '  saveAs("tif", processed_image_name);',
@@ -2369,7 +2366,135 @@ def save_folder_as_zip(input_dir_path, zip_filename):
     # keep
     delete_folder(input_dir_path)
     os.rename(zip_filename_tmp, zip_filename)
-    
+
+def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending):
+
+    """Increases the contrast of all raw images, and returns the modified plate_batch_to_raw_outdir"""
+
+    ######### CREATE ONE IMAGE WITH ALL THE IMAGES #############
+
+    # define filenames and ordering
+    I_to_pb_img = {}; I=0
+    image_filenames = []
+    for pb in sorted(plate_batch_to_raw_outdir.keys()):
+        for img in plate_batch_to_images[pb]:
+            image_filenames.append("%s/%s"%(plate_batch_to_raw_outdir[pb], img))
+            I_to_pb_img[I] = (pb, img); I+=1
+
+    # create the concatenated image
+    concatenated_image_file = "%s/concatenated_images.%s"%(tmpdir, image_ending)
+    if file_is_empty(concatenated_image_file):
+
+        # list images
+        images = [PIL_Image.open(filename) for filename in image_filenames]
+
+        # Get the width and height of each image
+        widths, heights = zip(*(idx.size for idx in images))
+        if len(set(widths))!=1: raise ValueError("There should be only one width")
+        if len(set(heights))!=1: raise ValueError("There should be only one heights")
+
+        # Calculate the total width and maximum height of the final image
+        total_width = sum(widths)
+        max_height = max(heights)
+
+        # Create a new blank image with the calculated dimensions
+        concatenated_image = PIL_Image.new('RGB', (total_width, max_height))
+
+        # Paste each image into the new image side by side
+        x_offset = 0
+        for image in images:
+            concatenated_image.paste(image, (x_offset, 0))
+            x_offset += image.size[0]
+
+        # Save the concatenated image
+        concatenated_image_file_tmp = "%s.tmp.%s"%(concatenated_image_file, image_ending)
+        concatenated_image.save(concatenated_image_file_tmp)
+        os.rename(concatenated_image_file_tmp, concatenated_image_file)
+
+    ############################################################
+
+    ###### ENHANCE CONTRAST ########
+
+    # define image
+    concatenated_image_file_enhanced = "%s.enhanced.%s"%(concatenated_image_file, image_ending)
+    if file_is_empty(concatenated_image_file_enhanced):
+        concatenated_image_file_enhanced_tmp = "%s.tmp.%s"%(concatenated_image_file_enhanced, image_ending)
+        remove_file(concatenated_image_file_enhanced_tmp)
+
+        # define the imageJ binary
+        imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
+
+        # create macro that enhances contrast
+        lines = [
+                  'input_image = "%s";'%concatenated_image_file,
+                  'output_image = "%s";'%concatenated_image_file_enhanced_tmp,
+                  'open(input_image);'
+                  'run("Enhance Contrast...", "saturated=0.3");'
+                  'saveAs("tif", output_image);',
+                  'close();'
+                ]
+
+        macro_file = "%s.image_enhancing.ijm"%tmpdir
+        remove_file(macro_file)
+        open(macro_file, "w").write("\n".join(lines)+"\n")
+
+        # run the macro
+        imageJ_std = "%s.running.std"%macro_file
+        run_cmd("%s --headless -macro %s > %s 2>&1"%(imageJ_binary, macro_file, imageJ_std))
+
+        # check that the macro ended well
+        error_lines = [l for l in open(imageJ_std, "r").readlines() if any([x in l.lower() for x in {"error", "fatal"}])]
+        if len(error_lines)>0: 
+            raise ValueError("imageJ did not work on '%s'. Check '%s' to see what happened."%(plate_batch, imageJ_std.replace("/output", "<output dir>"))); 
+
+        # clean
+        for f in [macro_file, imageJ_std]: remove_file(f)
+
+        # at the end save
+        os.rename(concatenated_image_file_enhanced_tmp, concatenated_image_file_enhanced)
+    ################################
+
+    ###### CREATE SINGLE IMAGES ####
+
+    # init dirs
+    raw_images_dir = "%s/enhanced_contrast_raw_images"%tmpdir
+    if not os.path.isdir(raw_images_dir):
+
+        # make tmp dir
+        raw_images_dir_tmp = "%s_tmp"%raw_images_dir
+        delete_folder(raw_images_dir_tmp); make_folder(raw_images_dir_tmp)
+
+        # load the enhanced image
+        concatenated_image_enhanced = PIL_Image.open(concatenated_image_file_enhanced)
+        total_w, total_h = concatenated_image_enhanced.size
+
+        # define the width of a single image
+        single_image_width = PIL_Image.open(image_filenames[0]).size[0]
+
+        # go through each image
+        for imgI in range(len(image_filenames)):
+
+            # define the dir and image
+            pb, imgfile = I_to_pb_img[imgI]
+            dir_img = "%s/%s"%(raw_images_dir_tmp, pb); make_folder(dir_img)
+            img_file = "%s/%s"%(dir_img, imgfile)
+
+            # save the cropped image
+            x0 = imgI*single_image_width
+            x1 = x0 + single_image_width
+            concatenated_image_enhanced.crop((x0, 0, x1, total_h)).save(img_file)
+
+        # keep
+        os.rename(raw_images_dir_tmp, raw_images_dir)
+
+    ################################
+
+    # create modified_plate_batch_to_raw_outdir
+    modified_plate_batch_to_raw_outdir = {pb : "%s/%s"%(raw_images_dir, pb) for pb in plate_batch_to_raw_outdir.keys()}
+
+    return modified_plate_batch_to_raw_outdir
+
+
 
 def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast):
 
@@ -2472,10 +2597,15 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     run_function_in_parallel(inputs_fn_linking, soft_link_files)
 
     # log
-    start_time_rotation_contrast = time.time()
+    #start_time_rotation_contrast = time.time()
+
+    # increasing contrast
+    if enhance_image_contrast is True:
+        print("Enhancing image contrast...")
+        plate_batch_to_raw_outdir = get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending)
 
     # rotate each plate set at the same time (not in parallel)
-    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_and_contrast_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, enhance_image_contrast)
+    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending)
 
     # log
     #print_with_runtime("Rotating images and Improving contrast took %.3f seconds"%(time.time()-start_time_rotation_contrast))

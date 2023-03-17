@@ -2,7 +2,7 @@
 
 This is the software to analyze the images from the Q-PHAST pipeline. This software is an application to  analyze images and obtain phenotypes and AST measurements. To use it you need to:
 
-- Install the pipeline as specified [here](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/installation.md).
+- Install the pipeline as specified [here](https://github.com/Gabaldonlab/Q-PHAST/blob/main/wiki/installation.md).
 
 - Run it following [these instructions](https://github.com/Gabaldonlab/qCAST/blob/main/wiki/running.md).
 
