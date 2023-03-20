@@ -383,6 +383,7 @@ def generate_analyze_images_window_optional():
 
     """Generates one window for the image analysis"""
 
+    print("WARNING: You need to tune this window.")
 
     # init window
     window = tk.Tk()
@@ -412,13 +413,14 @@ def generate_analyze_images_window_optional():
     keep_tmp_files_True_button.pack(side=tk.TOP, expand=True)
     keep_tmp_files_False_button.pack(side=tk.TOP, expand=True)
 
+    """
     # add the entry of the pseudocount_log2_concentration
     tk.Label(window, text='\n2) pseudocount concentration:', font=('Arial bold',15)).pack(side=tk.TOP)
     tk.Label(window, text='(float added to concentrations\nfor susceptibility measures)', font=('Arial bold',13)).pack(side=tk.TOP)
     pseudocount_log2_concentration_entry = tk.Entry(window, font=('Arial bold',13))
     pseudocount_log2_concentration_entry.insert(0, str(opt.pseudocount_log2_concentration))
     pseudocount_log2_concentration_entry.pack(side=tk.TOP, expand=True)
-
+    """
     # add the entry of the min_nAUC_to_beConsideredGrowing
     tk.Label(window, text='\n3) min nAUC growing:', font=('Arial bold',15)).pack(side=tk.TOP)
     tk.Label(window, text='(minimum nAUC (float)\nto be considered growing)', font=('Arial bold',13)).pack(side=tk.TOP)
@@ -426,21 +428,23 @@ def generate_analyze_images_window_optional():
     min_nAUC_to_beConsideredGrowing_entry.insert(0, str(opt.min_nAUC_to_beConsideredGrowing))
     min_nAUC_to_beConsideredGrowing_entry.pack(side=tk.TOP, expand=True)
 
+    """
     # add the entry of the min_points_to_calculate_resistance_auc
     tk.Label(window, text='\n4) min concentrations rAUC:', font=('Arial bold',15)).pack(side=tk.TOP)
     tk.Label(window, text='(minimum # concentrations \nnecessary to calculate rAUC)', font=('Arial bold',13)).pack(side=tk.TOP)
     min_points_to_calculate_resistance_auc_entry = tk.Entry(window, font=('Arial bold',13))
     min_points_to_calculate_resistance_auc_entry.insert(0, str(opt.min_points_to_calculate_resistance_auc))
     min_points_to_calculate_resistance_auc_entry.pack(side=tk.TOP, expand=True)
+    """
 
     # run and capture the entries
     tk.Label(window, text='\n5) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
     def run_module(): 
 
         # get the extra measurements
-        opt.pseudocount_log2_concentration = float(pseudocount_log2_concentration_entry.get())
+        #opt.pseudocount_log2_concentration = float(pseudocount_log2_concentration_entry.get())
         opt.min_nAUC_to_beConsideredGrowing = float(min_nAUC_to_beConsideredGrowing_entry.get())
-        opt.min_points_to_calculate_resistance_auc = int(min_points_to_calculate_resistance_auc_entry.get())
+        #opt.min_points_to_calculate_resistance_auc = int(min_points_to_calculate_resistance_auc_entry.get())
 
         # run
         window.destroy()

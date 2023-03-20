@@ -23,6 +23,7 @@ from scipy.cluster import hierarchy
 import matplotlib.patches as patches
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import traceback
+from PIL import ImageFile, ImageStat
 
 # set parms for matplotlib
 #plt.rcParams['font.family'] = 'Arial'
@@ -408,13 +409,41 @@ def process_image_rotation_and_contrast(Iimage, nimages, raw_image, processed_im
         # keep
         os.rename(processed_image_tmp, processed_image)
 
+def generates_image_w_appended_image_on_the_right(input_image_file, output_image_file, appended_image_file, image_ending):
 
-def process_image_rotation_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending):
+    """Generates an output_image_file, which is the result of input_image_file + appended_image_file"""
+
+    if file_is_empty(output_image_file):
+
+        # load image
+        input_image = PIL_Image.open(input_image_file)
+        appended_image = PIL_Image.open(appended_image_file)
+
+        # get dimensions
+        input_image_w, input_image_h = input_image.size
+        appended_image_w, appended_image_h = appended_image.size
+
+        # create the image
+        max_h = max([input_image_h, appended_image_h])
+        total_w = input_image_w + appended_image_w
+        output_image = PIL_Image.new('RGB', (total_w, max_h))
+
+        # Paste each image into the new image side by side
+        output_image.paste(input_image, (0, 0))
+        output_image.paste(appended_image, (input_image_w, 0))
+
+        # Save the concatenated image
+        output_image_file_tmp = "%s.tmp.%s"%(output_image_file, image_ending)
+        output_image.save(output_image_file_tmp)        
+        os.rename(output_image_file_tmp, output_image_file)
+
+def process_image_rotation_all_images_batch(Ibatch, nbatches, raw_outdir, processed_outdir, plate_batch, expected_images, image_ending, enhance_image_contrast, image_highest_contrast):
 
     """Runs the processing of images for all images in one batch"""
 
     # log
-    log_txt = "Flipping images for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch)
+    log_txt = "Processing images for batch %i/%i: %s"%(Ibatch, nbatches, plate_batch)
+    if enhance_image_contrast is True: log_txt += " (increasing contrast)"
     print_with_runtime(log_txt)
 
     # if there are no processed files
@@ -427,45 +456,50 @@ def process_image_rotation_all_images_batch(Ibatch, nbatches, raw_outdir, proces
         processed_outdir_tmp = "%s_tmp"%processed_outdir
         delete_folder(processed_outdir_tmp); make_folder(processed_outdir_tmp)
 
-        # define the imageJ binary
-        imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
+        # make a folder with images of the highest contrast appended
+        merged_images_dir = "%s_merged_images"%processed_outdir
+        make_folder(merged_images_dir)
+
+        # define the width and the heith of all images
+        image_w, image_h = PIL_Image.open("%s/%s"%(raw_outdir, expected_images[0])).size
+
+        # get the merged_images
+        inputs_fn = [("%s/%s"%(raw_outdir, img), "%s/%s"%(merged_images_dir, img), image_highest_contrast, image_ending) for img in expected_images]
+        run_function_in_parallel(inputs_fn, generates_image_w_appended_image_on_the_right)
 
         # define the contrast as based on enhance_image_contrast
-        #if enhance_image_contrast is True: line_contrast = 'run("Enhance Contrast...", "saturated=0.3");',
-        #else: line_contrast = ''
+        if enhance_image_contrast is True: 
+            #line_contrast = 'run("Enhance Contrast...", "saturated=0.3");', # initial, uneven contrast
+            lines_contrast = ['run("Enhance Contrast...", "saturated=0.3 stretch");'] # even contrast, better than equalize
+            #line_contrast = 'run("Enhance Contrast...", "saturated=0.3 equalize");', # similar, even contrast. The problem is that it is too bright
+        else: lines_contrast = []
 
         # create a macro to change the image
-        lines = [
-                 'input_dir = "%s/";'%(raw_outdir),
+        header = [
+                 'input_dir = "%s/";'%(merged_images_dir),
                  'list_images = getFileList(input_dir);',
                  'setBatchMode(true);',
                  'for (i=0; i<list_images.length; i++) {',
-                 '  open(input_dir+list_images[i]);'
+                 '  open(input_dir+list_images[i]);',
+                 ]
+
+        footer = [
+                 '  makeRectangle(0, 0, %i, %i);'%(image_w, image_h),
+                 '  run("Crop");',
                  '  run("Flip Vertically");',
-                 '  run("Rotate 90 Degrees Left");',
+                 '  run("Rotate 90 Degrees Left");'
                  '  processed_image_name = "%s/" + replace(list_images[i], "%s", "tif");'%(processed_outdir_tmp, image_ending),
-                 '  print(processed_image_name);',
                  '  saveAs("tif", processed_image_name);',
                  '  close();',
                  '}',
                  'setBatchMode(false);'
-                ]
+                 ]
 
-        macro_file = "%s.processing_script.ijm"%raw_outdir
-        remove_file(macro_file)
-        open(macro_file, "w").write("\n".join(lines)+"\n")
-
-        # run the macro
-        imageJ_std = "%s.generating.std"%processed_outdir_tmp
-        run_cmd("%s --headless -macro %s > %s 2>&1"%(imageJ_binary, macro_file, imageJ_std))
-
-        # check that the macro ended well
-        error_lines = [l for l in open(imageJ_std, "r").readlines() if any([x in l.lower() for x in {"error", "fatal"}])]
-        if len(error_lines)>0: 
-            raise ValueError("imageJ did not work on '%s'. Check '%s' to see what happened."%(plate_batch, imageJ_std.replace("/output", "<output dir>"))); 
+        lines = header + lines_contrast + footer
+        run_imageJ_macro(lines, "%s.processing_script.ijm"%raw_outdir, delete_files=False)
 
         # clean
-        for f in [macro_file, imageJ_std]: remove_file(f)
+        delete_folder(merged_images_dir)
 
         # at the end save
         os.rename(processed_outdir_tmp, processed_outdir)
@@ -476,6 +510,8 @@ def process_image_rotation_all_images_batch(Ibatch, nbatches, raw_outdir, proces
 
     for f in expected_images: 
         if file_is_empty("%s/%s"%(processed_outdir, f)): raise ValueError("image %s should exist"%f)
+
+    # clean
 
 def process_image_rotation_and_contrast_PIL(Iimage, nimages, raw_image, processed_image):
 
@@ -692,9 +728,36 @@ def generate_colonyzer_coordinates_one_plate_batch_and_plate(dest_processed_imag
         open(colonizer_coordinates_tmp, "w").write("".join(non_coordinates_lines + coordinates_lines))
         os.rename(colonizer_coordinates_tmp, colonizer_coordinates)
 
-def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtension):
+def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtension, processed_images_dir_each_plate, reference_plate):
 
     """Runs colonyzer for a set of parms. This should be run from a directory where there are imnages"""
+
+    # define the cur_dir
+    cur_dir = os.getcwd()
+
+    # if you provided a reference plate, create a running folder
+    if not reference_plate is None: 
+
+        # Get the last timepoint image of the reference plate as the image to append
+        dir_ref = "%s/%s_plate%i"%(processed_images_dir_each_plate, reference_plate[0], reference_plate[1])
+        sorted_imgs = sorted({f for f in os.listdir(dir_ref) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
+        ref_image_file = "%s/%s"%(dir_ref, sorted_imgs[-1])
+
+        # define the dest_cur_dir, where to place merged images
+        dest_cur_dir = "%s/working_w_ref_plate"%cur_dir; make_folder(dest_cur_dir)
+
+        # Get colonyzer file
+        soft_link_files("%s/Colonyzer.txt"%(cur_dir), "%s/Colonyzer.txt"%(dest_cur_dir))
+
+        # generate figures with appended ref_image_file in the right
+        imgs_process =  sorted({f for f in os.listdir(cur_dir) if not f.startswith(".") and f.split(".")[0] in image_names_withoutExtension})
+        img_name_to_size = {}
+        for img in imgs_process: 
+            img_name_to_size[img.split(".")[0]] = PIL_Image.open("%s/%s"%(cur_dir, img)).size
+            generates_image_w_appended_image_on_the_right("%s/%s"%(cur_dir, img), "%s/%s"%(dest_cur_dir, img), ref_image_file, imgs_process[0].split(".")[-1])
+
+        # move to dest_cur_dir and work there
+        os.chdir(dest_cur_dir)
 
     # sort
     sorted_parms = sorted(parms)
@@ -729,8 +792,25 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
         run_cmd(colonyzer_cmd, env="colonyzer_env")
         remove_file(colonyzer_std)
 
-        # once it is donde, move to outdir_tmp
-        for folder in ["Output_Images", "Output_Data", "Output_Reports"]: run_cmd("mv %s/ %s/"%(folder, outdir_tmp))
+        # change to initial curdir
+        os.chdir(cur_dir)
+
+        # move to outdir_tmp
+        for folder in ["Output_Images", "Output_Data", "Output_Reports"]: 
+
+            # move to tmp
+            if not reference_plate is None: source_folder =  "%s/%s"%(dest_cur_dir, folder)
+            else:  source_folder =  "%s/%s"%(cur_dir, folder)
+            dest_folder = "%s/%s"%(outdir_tmp, folder)
+            os.rename(source_folder, dest_folder)
+
+            # edit the images
+            if not reference_plate is None and folder=="Output_Images": 
+
+                for img in sorted(image_names_withoutExtension):
+                    for suffix in {".png", "_AREA.png"}:
+                        image_file = "%s/%s%s"%(dest_folder, img, suffix)
+                        PIL_Image.open(image_file).crop((0, 0, img_name_to_size[img][0], img_name_to_size[img][1])).save(image_file)
 
         # change the name, which marks that everything finished well
         os.rename(outdir_tmp, outdir)
@@ -788,6 +868,12 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     # get the data path
     data_path = "%s/%s/Output_Data"%(outdir_all, outdir_name)
+
+    print(data_path)
+
+    dakjahdajhgajgadadgjdg
+
+    rewrite_everything_here
 
     # generate a df with fitness info of all images
     all_df = pd.DataFrame()
@@ -874,6 +960,8 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     ##### RUN QFA AND SAVE #####
 
+    rethink_how_growth_is_ninferred_make_sure_that_it_is_comparable_across_batches
+
     # generate the plots with R
     fitness_measurements_std = "%s/fitness_measurements.std"%data_path
     run_cmd("/workdir_app/scripts/get_fitness_measurements.R %s > %s 2>&1"%("%s/%s"%(outdir_all, outdir_name), fitness_measurements_std), env="main_env")
@@ -887,7 +975,7 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     return get_tab_as_df_or_empty_df(df_fitness_measurements_file)
 
-def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nbatches, images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout):
+def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nbatches, images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout, processed_images_dir_each_plate, reference_plate):
 
     """Analyzes the images from images_folder, writing into outdir_all."""
 
@@ -922,7 +1010,7 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nba
 
         # run colonyzer for all parameters
         #print_with_runtime("Running colonyzer to get raw fitness data...")
-        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_all, image_names_withoutExtension)
+        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_all, image_names_withoutExtension, processed_images_dir_each_plate, reference_plate)
 
         # go back to the initial dir
         os.chdir(initial_dir)
@@ -933,6 +1021,8 @@ def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nba
 
         # go through each of the directories of data and generate the image analysis data
         #print_with_runtime("Running qfa to get per-spot fitness data...")
+
+        improve_fitness_parameters
 
         # generate the fitness df
         df_fitness_measurements = get_df_fitness_measurements_one_parm_set(outdir_all, "output_%s"%("_".join(sorted(parms_colonyzer))), plate_batch, plate, df_plate_layout)
@@ -1197,7 +1287,7 @@ def get_AUC_for_EUCASTreplicate(df, fitness_estimate, concs_info, concentration_
     return auc
 
 
-def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concentration, min_points_to_calculate_auc, filename, experiment_name):
+def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate_auc, filename, experiment_name):
 
     """
     Takes a fitness df and returns a df where each row is one sampleID-drug-fitness_estimate combination and there are susceptibility measurements (rAUC, MIC or initial fitness).
@@ -1225,6 +1315,10 @@ def get_susceptibility_df(fitness_df, fitness_estimates, pseudocount_log2_concen
             if len(sorted_concentrations)<3: 
                 print_with_runtime("WARNING: For drug=%s there are only %i concentrations. Skipping the susceptibility analysis since it needs >=3 concentrations (including 0)."%(drug, len(sorted_concentrations)))
                 continue
+
+            # define the log2_concentration
+            pseudocount_log2_concentration = sorted_concentrations[0]/2
+            fitness_df["log2_concentration"] = np.log2(fitness_df.concentration + pseudocount_log2_concentration)
 
             # map each drug to the expected concentrations
             concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
@@ -1769,7 +1863,7 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
     os.rename(filename_tmp, filename)
 
 
-def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_all, fitness_estimates, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, experiment_name):
+def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name):
 
     """For each drug and fe, make a heatmap where the rows are strains and the columns are concentrations."""
 
@@ -1941,7 +2035,7 @@ def plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filenam
 
 
 
-def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False):
+def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False):
 
     """
     
@@ -2367,9 +2461,36 @@ def save_folder_as_zip(input_dir_path, zip_filename):
     delete_folder(input_dir_path)
     os.rename(zip_filename_tmp, zip_filename)
 
-def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending):
+
+def run_imageJ_macro(lines, macro_file, delete_files=True):
+
+    """Writes and runs an imageJ macro"""
+
+    # define the imageJ binary
+    imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
+
+    # write macro
+    remove_file(macro_file)
+    open(macro_file, "w").write("\n".join(lines)+"\n")
+
+    # run the macro
+    imageJ_std = "%s.running.std"%macro_file
+    run_cmd("%s --headless -macro %s > %s 2>&1"%(imageJ_binary, macro_file, imageJ_std))
+
+    # check that the macro ended well
+    error_lines = [l for l in open(imageJ_std, "r").readlines() if any([x in l.lower() for x in {"error", "fatal"}])]
+    if len(error_lines)>0: 
+        raise ValueError("imageJ did not work. Check '%s' to see what happened."%(imageJ_std.replace("/output", "<output dir>")));
+
+    # clean
+    if delete_files: 
+        for f in [macro_file, imageJ_std]: remove_file(f)
+
+def get_images_with_enhanced_contrast_all_images_concatenated(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending):
 
     """Increases the contrast of all raw images, and returns the modified plate_batch_to_raw_outdir"""
+
+    this_is_not_scalable_and_should_not_be_used
 
     ######### CREATE ONE IMAGE WITH ALL THE IMAGES #############
 
@@ -2384,9 +2505,10 @@ def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_b
     # create the concatenated image
     concatenated_image_file = "%s/concatenated_images.%s"%(tmpdir, image_ending)
     if file_is_empty(concatenated_image_file):
+        #print("Generating concatenated image...")
 
         # list images
-        images = [PIL_Image.open(filename) for filename in image_filenames]
+        images = list(map(lambda x: PIL_Image.open(x), image_filenames))
 
         # Get the width and height of each image
         widths, heights = zip(*(idx.size for idx in images))
@@ -2418,11 +2540,9 @@ def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_b
     # define image
     concatenated_image_file_enhanced = "%s.enhanced.%s"%(concatenated_image_file, image_ending)
     if file_is_empty(concatenated_image_file_enhanced):
+        #print("Enhancing contrast...")
         concatenated_image_file_enhanced_tmp = "%s.tmp.%s"%(concatenated_image_file_enhanced, image_ending)
         remove_file(concatenated_image_file_enhanced_tmp)
-
-        # define the imageJ binary
-        imageJ_binary = "/workdir_app/Fiji.app/ImageJ-linux64"
 
         # create macro that enhances contrast
         lines = [
@@ -2434,42 +2554,64 @@ def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_b
                   'close();'
                 ]
 
-        macro_file = "%s.image_enhancing.ijm"%tmpdir
-        remove_file(macro_file)
-        open(macro_file, "w").write("\n".join(lines)+"\n")
-
         # run the macro
-        imageJ_std = "%s.running.std"%macro_file
-        run_cmd("%s --headless -macro %s > %s 2>&1"%(imageJ_binary, macro_file, imageJ_std))
-
-        # check that the macro ended well
-        error_lines = [l for l in open(imageJ_std, "r").readlines() if any([x in l.lower() for x in {"error", "fatal"}])]
-        if len(error_lines)>0: 
-            raise ValueError("imageJ did not work on '%s'. Check '%s' to see what happened."%(plate_batch, imageJ_std.replace("/output", "<output dir>"))); 
-
-        # clean
-        for f in [macro_file, imageJ_std]: remove_file(f)
-
+        run_imageJ_macro(lines, "%s/image_contrast_enhancing.ijm"%tmpdir)
+     
         # at the end save
         os.rename(concatenated_image_file_enhanced_tmp, concatenated_image_file_enhanced)
     ################################
+
 
     ###### CREATE SINGLE IMAGES ####
 
     # init dirs
     raw_images_dir = "%s/enhanced_contrast_raw_images"%tmpdir
     if not os.path.isdir(raw_images_dir):
+        print("cropping...")
 
         # make tmp dir
         raw_images_dir_tmp = "%s_tmp"%raw_images_dir
         delete_folder(raw_images_dir_tmp); make_folder(raw_images_dir_tmp)
 
-        # load the enhanced image
-        concatenated_image_enhanced = PIL_Image.open(concatenated_image_file_enhanced)
-        total_w, total_h = concatenated_image_enhanced.size
+        # define sizes of images
+        single_image_w, single_image_h = PIL_Image.open(image_filenames[0]).size
+        total_w = single_image_w*len(image_filenames)
 
-        # define the width of a single image
-        single_image_width = PIL_Image.open(image_filenames[0]).size[0]
+        """
+        # define an imageJ macro that will crop the images
+        lines = ['input_path="%s";'%concatenated_image_file_enhanced,
+                 'output_dir="%s";'%raw_images_dir_tmp,
+                 'chunk_width=%i;'%single_image_w,
+                 'open(input_path);',
+                 'width = %i;'%total_w,
+                 'height = %i;'%single_image_h,
+                 'I = 0;',
+                 'for (x = 0; x < width; x += chunk_width) {',
+                 #'  open(input_path);',
+                 '  makeRectangle(x, 0, chunk_width, height);',
+                 #'  slice_num = getSelectionStart("y");', # get the slice number containing the selection
+                 #'  print(slice_num);',
+                 #'  setSlice(1);', # add this line to update the slice being displayed
+                 '  run("Crop");',
+                 '  output_path = output_dir + "/chunk_" + I + ".tif";',
+                 '  saveAs("Tiff", output_path);',
+                 '  I = I+1;',
+                 '  close();',
+                 '  open(input_path);',
+                 '}',
+                 'close();'
+                 ]
+
+        run_imageJ_macro(lines, "%s/cropping_large_image.ijm"%tmpdir, delete_files=False)
+        """
+        # Python-based way, can' hande large images
+
+        # load image
+        concatenated_image_enhanced = PIL_Image.open(concatenated_image_file_enhanced)
+
+        # get size
+        total_w, total_h = concatenated_image_enhanced.size
+        single_image_width, single_image_h = PIL_Image.open(image_filenames[0]).size[0]
 
         # go through each image
         for imgI in range(len(image_filenames)):
@@ -2495,8 +2637,17 @@ def get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_b
     return modified_plate_batch_to_raw_outdir
 
 
+def get_contrast_for_image(filename):
 
-def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast):
+    """Gets the contrast for the image"""
+
+    # load image and get stat
+    stat = ImageStat.Stat(PIL_Image.open(filename))
+
+    # returrn contrast
+    return stat.mean[0]
+
+def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast, reference_plate):
 
     """Takes the images and generates processed images that are cropped to be one in each plate"""
 
@@ -2506,11 +2657,14 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     #print_with_runtime("Debugging inputs ...")
     df_plate_layout, all_drugs, measure_susceptibility, experiment_name = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
+    # check that reference_plate is correct
+    if not reference_plate is None:
+        reference_b, reference_p = reference_plate
+        if not any((df_plate_layout.plate_batch==reference_b) & (df_plate_layout.plate==reference_p)): raise ValueError("Error in setting reference plate. Reference plate %s-%s is not found in the plate layout. This should have the format <plate_batch>-plate<plateID>. For example 'SC1-plate1'."%(reference_b, reference_p))
+
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
     make_folder(tmpdir)   
-
-    # create a .zip file that contains a subset of the inputs and 
 
     # exteded outdir
     extended_outdir = "%s/extended_outputs"%outdir
@@ -2586,7 +2740,6 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
 
         # sort images by date
         plate_batch_to_images[plate_batch] = sorted(plate_batch_to_images[plate_batch], key=get_yyyymmddhhmm_tuple_one_image_name)
-
         plate_batch_to_raw_images[plate_batch] = sorted(plate_batch_to_raw_images[plate_batch], key=get_yyyymmddhhmm_tuple_one_image_name)
 
     # checks
@@ -2599,13 +2752,20 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     # log
     #start_time_rotation_contrast = time.time()
 
-    # increasing contrast
+    # increase contrast all plates together
+    """
     if enhance_image_contrast is True:
         print("Enhancing image contrast...")
-        plate_batch_to_raw_outdir = get_images_with_enhanced_contrast(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending)
+        plate_batch_to_raw_outdir = get_images_with_enhanced_contrast_all_images_concatenated(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending) # this is not efficient because it does not scale
+    """
 
-    # rotate each plate set at the same time (not in parallel)
-    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending)
+    # define the image with the highest contrast for reference
+    all_images = sorted(make_flat_listOflists([["%s/%s"%(plate_batch_to_raw_outdir[pb], img) for img in images] for pb, images in plate_batch_to_images.items()]))
+    image_to_contrast = pd.Series(dict(zip(all_images, map(get_contrast_for_image, all_images))))
+    image_highest_contrast = image_to_contrast.sort_values().index[-1]
+
+    # rotate each plate set at the same time (not in parallel). Also increase contrast.
+    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, enhance_image_contrast, image_highest_contrast)
 
     # log
     #print_with_runtime("Rotating images and Improving contrast took %.3f seconds"%(time.time()-start_time_rotation_contrast))
@@ -2697,7 +2857,7 @@ def run_analyze_images_run_colonyzer(outdir_images):
 
     ############################
 
-def run_analyze_images_run_colonyzer_subset_images_one_plate(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d):
+def run_analyze_images_run_colonyzer_subset_images_one_plate(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d, reference_plate):
 
     """Runs colonyzer on one plate (d) from processed_images_dir_each_plate, colonyzer_runs_subset_dir contains the images"""
 
@@ -2725,10 +2885,10 @@ def run_analyze_images_run_colonyzer_subset_images_one_plate(processed_images_di
         image_names_withoutExtension = set({x.split(".")[0] for x in os.listdir(outdir_tmp) if x.endswith(".tif") and not x.startswith(".")})
 
         # run colonyzer for all parameters
-        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_tmp, image_names_withoutExtension)
+        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_tmp, image_names_withoutExtension, processed_images_dir_each_plate, reference_plate)
         os.rename(outdir_tmp, outdir)
 
-def run_analyze_images_run_colonyzer_subset_images(outdir):
+def run_analyze_images_run_colonyzer_subset_images(outdir, reference_plate):
 
     """Runs colonyzer on a subset of 2 images with the generated Colonyzer.txt file"""
 
@@ -2740,7 +2900,7 @@ def run_analyze_images_run_colonyzer_subset_images(outdir):
     colonyzer_runs_subset_dir = "%s/colonyzer_runs_subset"%tmpdir; make_folder(colonyzer_runs_subset_dir)
 
     # define the inputs function to run colonyzer
-    inputs_fn = [(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d) for d in os.listdir(processed_images_dir_each_plate)]
+    inputs_fn = [(processed_images_dir_each_plate, colonyzer_runs_subset_dir, d, reference_plate) for d in os.listdir(processed_images_dir_each_plate)]
 
     #print_with_runtime("Checking coordinates in parallel on %i threads..."%multiproc.cpu_count())
     run_function_in_parallel(inputs_fn, run_analyze_images_run_colonyzer_subset_images_one_plate)
@@ -3122,7 +3282,7 @@ def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offs
 
         ###############################
 
-def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing):
+def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, min_nAUC_to_beConsideredGrowing, reference_plate):
 
     """Generates the fitness measurements."""
 
@@ -3170,7 +3330,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
     inputs_fn_fitness = []
 
-    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): inputs_fn_fitness.append((I+1, len(inputs_fn_coords), proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], cp.deepcopy(df_plate_layout)))
+    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): inputs_fn_fitness.append((I+1, len(inputs_fn_coords), proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], cp.deepcopy(df_plate_layout), processed_images_dir_each_plate, reference_plate))
 
     print_with_runtime("Analyzing images in parallel on %i threads..."%multiproc.cpu_count())
     run_function_in_parallel(inputs_fn_fitness, get_df_integrated_fitness_measurements_one_plate_batch_and_plate)
@@ -3242,7 +3402,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     number_to_letter = dict(zip(range(1,9), list("ABCDEFGH")))
     df_fitness_measurements["replicateID"] = df_fitness_measurements.row.apply(lambda x: number_to_letter[x]) + df_fitness_measurements.column.apply(str)
     df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
-    df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
+    #df_fitness_measurements["log2_concentration"] = np.log2(df_fitness_measurements.concentration + pseudocount_log2_concentration)
     df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
 
     # create merged images to validate bad spots
@@ -3287,7 +3447,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     ###################################################################################
 
 
-def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc):
+def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, min_nAUC_to_beConsideredGrowing):
 
     """
     Writes the integrated fitness and susceptibility measurements.
@@ -3363,7 +3523,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
         # run the AST calculations based on all plates
-        print_with_runtime("Getting the relative fitness and susceptibility measurements. Adding %s as a pseudocount to calculate log2 concentrations. Considering spots with a  nAUC<%s to be not growing. rAUC calculations are only made on strains with at least %s (including 0) concentrations..."%(pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, min_points_to_calculate_resistance_auc))
+        print_with_runtime("Getting the relative fitness and susceptibility measurements. Considering spots with a  nAUC<%s to be not growing."%(min_nAUC_to_beConsideredGrowing))
 
         # debugs
         for d in all_drugs:
@@ -3409,7 +3569,8 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         if any(drug_to_nconcs>=2):
 
             # get the susceptibility df
-            susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates_susc, pseudocount_log2_concentration, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%extended_outdir, experiment_name)
+            min_points_to_calculate_resistance_auc = 3 # you need at least three points (including 0, to calculate rAUC)
+            susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates_susc, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%extended_outdir, experiment_name)
 
             # generate a reduced, simple, susceptibility_df
             simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
@@ -3428,18 +3589,18 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         # make lineplots of concentration-vs-fitness
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_lines"%extended_outdir
-        plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False)
+        plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False)
 
         # make lineplots of concentration-vs-fitness with all spots (also non-bad spots)
         outdir_drug_vs_fitness_extended_all_spots = "%s/drug_vs_fitness_lines_all_spots"%extended_outdir
-        plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, pseudocount_log2_concentration, experiment_name, type_data="all_data", only_absolute_estimates=True)
+        plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="all_data", only_absolute_estimates=True)
 
         # make the heatmap of the susceptibility measures
         if any(drug_to_nconcs>=2): plot_heatmap_susceptibility(susceptibility_df, "%s/susceptibility_heatmaps"%extended_outdir, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing)
 
         # make heatmap of concentration-vs-fitness
         outdir_heatmaps_extended = "%s/drug_vs_fitness_heatmaps"%extended_outdir
-        plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, pseudocount_log2_concentration, min_nAUC_to_beConsideredGrowing, experiment_name)
+        plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
 
         ###############################
 

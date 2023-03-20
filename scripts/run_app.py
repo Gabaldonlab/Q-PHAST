@@ -40,17 +40,23 @@ if not os.path.isdir(OutDir): raise ValueError("You should specify the output di
 # define a bool dict
 bool_dict = {'True':True, 'False':False}
 
+# define the reference plate
+reference_plate = str(os.environ["reference_plate"])
+if reference_plate=="None": reference_plate = None
+elif len(reference_plate.split("-"))==2 and reference_plate.split("-")[1].startswith("plate"): reference_plate = (reference_plate.split("-")[0], int(reference_plate.split("-")[1][-1]))
+else: raise ValueError("The argument passed to --reference_plate (%s) should have the format <plate_batch>-plate<plateID>. For example 'SC1-plate1'."%reference_plate)
+
 # process images
-if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["enhance_image_contrast"])])
+if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["enhance_image_contrast"])], reference_plate)
 
 # perform growth measurements for one image
-elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run_analyze_images_run_colonyzer_subset_images(OutDir)
+elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run_analyze_images_run_colonyzer_subset_images(OutDir, reference_plate)
 
 # perform fitness measurements
-elif os.environ["MODULE"]=="get_fitness_measurements": fun.run_analyze_images_get_fitness_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]))
+elif os.environ["MODULE"]=="get_fitness_measurements": fun.run_analyze_images_get_fitness_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, float(os.environ["min_nAUC_to_beConsideredGrowing"]), reference_plate)
 
 # final tables and plots
-elif os.environ["MODULE"]=="get_rel_fitness_and_susceptibility_measurements": fun.run_analyze_images_get_rel_fitness_and_susceptibility_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["pseudocount_log2_concentration"]), float(os.environ["min_nAUC_to_beConsideredGrowing"]), int(os.environ["min_points_to_calculate_resistance_auc"]))
+elif os.environ["MODULE"]=="get_rel_fitness_and_susceptibility_measurements": fun.run_analyze_images_get_rel_fitness_and_susceptibility_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["min_nAUC_to_beConsideredGrowing"]))
 
 else: raise ValueError("The module is incorrect")
 

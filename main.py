@@ -36,15 +36,20 @@ parser.add_argument("--input", dest="input", required=False, default=None, type=
 # optional arguments
 parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (forqca debugging).")
 parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
-parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures.")
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.5, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
-parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
 
 # developer args 
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
+parser.add_argument("--reference_plate", dest="reference_plate", required=False,  type=str, default=None, help="The plate to take as reference. It should be a plate with high growth in many spots. For example 'SC1-plate1' could be passed to this argument.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
+
+# graveyard args
+#parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures.")
+#parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
+
+
 
 # parse
 opt = parser.parse_args()
@@ -111,7 +116,7 @@ if not opt.os in {"linux", "mac", "windows"}: raise ValueError("--os should have
 fun.print_with_runtime("Writing results into the output folder '%s', using input files from '%s'"%(opt.output, opt.input))
 
 # print the cmd
-arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("pseudocount_log2_concentration", opt.pseudocount_log2_concentration), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("min_points_to_calculate_resistance_auc", opt.min_points_to_calculate_resistance_auc)]])
+arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing)]])
 
 if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
 if opt.replace is True: arguments += " --replace"
@@ -151,7 +156,7 @@ fun.make_folder(opt.output)
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e pseudocount_log2_concentration=%s -e min_nAUC_to_beConsideredGrowing=%s -e min_points_to_calculate_resistance_auc=%s -e enhance_image_contrast=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.pseudocount_log2_concentration, opt.min_nAUC_to_beConsideredGrowing, opt.min_points_to_calculate_resistance_auc, opt.enhance_image_contrast, tmp_input_dir, opt.output, opt.input)
+docker_cmd = 'docker run --rm -it -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), tmp_input_dir, opt.output, opt.input)
 
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
