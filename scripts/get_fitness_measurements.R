@@ -1,6 +1,6 @@
 #!/usr/bin/env Rscript
 
-# This script is used to generate qfa plots given a directory where you have the qfa data. It should be run in main_env
+# This script is used to generate fitness estimates and growth curves. It should be run in main_env
 
 # load packages
 library(qfa)
@@ -109,8 +109,7 @@ get_minDoublingTime = function(row, df, max_dt){
 
 # define paths
 input_dir = commandArgs(trailingOnly = TRUE)[1]
-#input_dir = "/home/mschikora/samba/imageAnalysis_fitness/test/output/output_greenlab_lc"
-
+days_experiment = as.numeric(commandArgs(trailingOnly = TRUE)[2])
 dat_file = paste(input_dir, "all_images_data.dat", sep="/")
 expt_file = paste(input_dir, "ExptDescription.txt", sep="/")
 lib_file = paste(input_dir, "LibraryDescriptions.txt", sep="/")
@@ -120,42 +119,37 @@ output_plots = paste(input_dir, "output_plots.pdf", sep="/")
 # read colonyzer
 data_colonyzer = colonyzer.read(files=c(dat_file), experiment=expt_file, libraries=lib_file, ORF2gene=orf_to_gene, screenID="")
 
-# define what you have as growth. This is a surrogate of cell density, scaled to have all positive values
+# get Growth
+data_colonyzer$Growth = data_colonyzer$Trimmed/(data_colonyzer$Tile.Dimensions.X*data_colonyzer$Tile.Dimensions.Y*255)
+if (sum(data_colonyzer$Growth<0)>0){ stop("There are spots with <0 Growth") }
+if (sum(data_colonyzer[data_colonyzer$Timeseries.order==1,]$Growth>0)>0){ stop("There are spots with >0 growth in t=0") }
+if (sum(is.na(data_colonyzer$Growth))>0){ stop("There are nans in Growth")}
 
-#data_colonyzer$Growth=data_colonyzer$Area
-
-# get growth
-data_colonyzer$Growth = scale(data_colonyzer$Trimmed/(data_colonyzer$Tile.Dimensions.X*data_colonyzer$Tile.Dimensions.Y*255))
-#data_colonyzer$Growth = data_colonyzer$Trimmed/(data_colonyzer$Tile.Dimensions.X*data_colonyzer$Tile.Dimensions.Y*255)
-
-# scale so that the minimum value is >0
-data_colonyzer$Growth = data_colonyzer$Growth + abs(min(data_colonyzer$Growth)) + 0.1
-
-# normalize so that the maximum is 1
-data_colonyzer$Growth = data_colonyzer$Growth/max(data_colonyzer$Growth)
+# add pseudount
+pseudocount_g = 0.01
+data_colonyzer$Growth = (data_colonyzer$Growth)*1e7 + pseudocount_g
 
 # define the inocguess, which is the initial value for growth, which can be the median of all the growth parameters in the first timepoint
 inocguess = median(data_colonyzer[data_colonyzer$Timeseries.order==1,]$Growth)
 
 # define the threshold in Growth under which you will say that it is noise
-threshold = min(data_colonyzer$Growth)-0.1
+threshold = inocguess/2
 
 # perform logistic regression
-fit = qfa.fit(data_colonyzer,inocguess=inocguess,ORF2gene=orf_to_gene,fixG=FALSE,detectThresh=threshold, AUCLim=4,STP=4,glog=FALSE, globalOpt=FALSE, nrate=TRUE, checkSlow=TRUE)
+fit = qfa.fit(data_colonyzer,inocguess=inocguess,ORF2gene=orf_to_gene,fixG=FALSE,detectThresh=threshold, AUCLim=days_experiment,STP=days_experiment,glog=FALSE, globalOpt=FALSE, nrate=TRUE, checkSlow=TRUE)
 fit = makeFitness(fit)
 
 # add the rsquared of the fit
 fit$rsquare = apply(fit, 1, function(r) get_rsquare_fromRow(r, data_colonyzer))
 
 # add the maximum predicted doubling time
-max_dt = max(fit$DT)
+#max_dt = max(fit$DT)
+max_dt = 25.0
 fit$DT_h = apply(fit, 1, function(r) get_minDoublingTime(r, data_colonyzer, max_dt))
 
 # make the plots
-qfa.plot(output_plots,fit,data_colonyzer,maxt=2)
+qfa.plot(output_plots,fit,data_colonyzer,maxt=days_experiment)
 
 # write the dfs
 write.table(data_colonyzer, paste(input_dir, "processed_all_data.tbl", sep="/"),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
 write.table(fit,paste(input_dir, "logRegression_fits.tbl", sep="/"),sep="\t",quote=FALSE,row.names=FALSE,col.names=TRUE)
-
-

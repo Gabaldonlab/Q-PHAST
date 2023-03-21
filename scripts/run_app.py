@@ -53,7 +53,7 @@ if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images
 elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run_analyze_images_run_colonyzer_subset_images(OutDir, reference_plate)
 
 # perform fitness measurements
-elif os.environ["MODULE"]=="get_fitness_measurements": fun.run_analyze_images_get_fitness_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, float(os.environ["min_nAUC_to_beConsideredGrowing"]), reference_plate)
+elif os.environ["MODULE"]=="get_fitness_measurements": fun.run_analyze_images_get_fitness_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, float(os.environ["min_nAUC_to_beConsideredGrowing"]), reference_plate, float(os.environ["hours_experiment"]))
 
 # final tables and plots
 elif os.environ["MODULE"]=="get_rel_fitness_and_susceptibility_measurements": fun.run_analyze_images_get_rel_fitness_and_susceptibility_measurements("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["KEEP_TMP_FILES"])], float(os.environ["min_nAUC_to_beConsideredGrowing"]))

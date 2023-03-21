@@ -732,19 +732,38 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
 
     """Runs colonyzer for a set of parms. This should be run from a directory where there are imnages"""
 
+    # sort
+    sorted_parms = sorted(parms)
+    parms_str = "_".join(sorted_parms)
+    extra_cmds_parmCombination = "".join([" --%s "%x for x in sorted_parms])
+
+    # change the parms str if blank
+    if parms_str=="": parms_str = "noExtraParms"
+
+    # define the outdirs
+    outdir = "%s/output_%s"%(outdir_all, parms_str)
+    outdir_tmp = "%s_tmp"%outdir
+
+    # if the outdir exists, return
+    if os.path.isdir(outdir): return
+
     # define the cur_dir
     cur_dir = os.getcwd()
 
     # if you provided a reference plate, create a running folder
     if not reference_plate is None: 
 
+        # define the dest_cur_dir, where to place merged images
+        dest_cur_dir = "%s/working_w_ref_plate"%cur_dir
+        delete_folder(dest_cur_dir)
+
         # Get the last timepoint image of the reference plate as the image to append
         dir_ref = "%s/%s_plate%i"%(processed_images_dir_each_plate, reference_plate[0], reference_plate[1])
         sorted_imgs = sorted({f for f in os.listdir(dir_ref) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
         ref_image_file = "%s/%s"%(dir_ref, sorted_imgs[-1])
 
-        # define the dest_cur_dir, where to place merged images
-        dest_cur_dir = "%s/working_w_ref_plate"%cur_dir; make_folder(dest_cur_dir)
+        # make folder
+        make_folder(dest_cur_dir)
 
         # Get colonyzer file
         soft_link_files("%s/Colonyzer.txt"%(cur_dir), "%s/Colonyzer.txt"%(dest_cur_dir))
@@ -758,18 +777,6 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
 
         # move to dest_cur_dir and work there
         os.chdir(dest_cur_dir)
-
-    # sort
-    sorted_parms = sorted(parms)
-    parms_str = "_".join(sorted_parms)
-    extra_cmds_parmCombination = "".join([" --%s "%x for x in sorted_parms])
-
-    # change the parms str if blank
-    if parms_str=="": parms_str = "noExtraParms"
-
-    # define the outdirs
-    outdir = "%s/output_%s"%(outdir_all, parms_str)
-    outdir_tmp = "%s_tmp"%outdir
 
     # check if all images have a data file (which means that they have been analyzed in outdir/Output_Data)
     all_images_analized = False
@@ -811,6 +818,10 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
                     for suffix in {".png", "_AREA.png"}:
                         image_file = "%s/%s%s"%(dest_folder, img, suffix)
                         PIL_Image.open(image_file).crop((0, 0, img_name_to_size[img][0], img_name_to_size[img][1])).save(image_file)
+
+
+        # remove dest_cur_dir
+        if not reference_plate is None: delete_folder(dest_cur_dir) 
 
         # change the name, which marks that everything finished well
         os.rename(outdir_tmp, outdir)
@@ -864,99 +875,6 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     """For one plate_batch and plate combination and one parm set, get the fitness measurements with qfa. The outdir_all should be where the colonyzer results are."""
 
-    #### PREPARE FITNESS DATA FOR QFA ANALYSIS ####
-
-    # get the data path
-    data_path = "%s/%s/Output_Data"%(outdir_all, outdir_name)
-
-    print(data_path)
-
-    dakjahdajhgajgadadgjdg
-
-    rewrite_everything_here
-
-    # generate a df with fitness info of all images
-    all_df = pd.DataFrame()
-
-    for f in [x for x in os.listdir(data_path) if x.endswith(".dat")]: 
-
-        # get df
-        df = pd.read_csv("%s/%s"%(data_path, f), sep="\t", header=None)
-
-        # append
-        all_df = all_df.append(df)
-
-    # add barcode in the first place, instead of the filename
-    all_df[0] = get_barcode_for_filenames(all_df[0])
-
-    # sort the values
-    all_df = all_df.sort_values(by=[0,1,2])
-
-    # change the NaN by "NA"
-    def change_NaN_to_str(cell):
-        if pd.isna(cell): return "NA"
-        else: return cell
-
-    all_df = all_df.applymap(change_NaN_to_str)
-
-    # write the csv under outdir
-    all_df.to_csv("%s/%s/all_images_data.dat"%(outdir_all, outdir_name), sep="\t", index=False, header=False)
-    
-    ###############################################
-
-    ###### CREATE FILES THAT ARE NECESSARY FOR QFA TO RUN #######
-
-    # create the files that are necessary for the R qfa package to generate the output files
-
-    # keep the plate layout that is interesting here
-    df_plate_layout = df_plate_layout[(df_plate_layout.plate_batch==plate_batch) & (df_plate_layout.plate==plate)].set_index(["row", "column"])
-
-    # checks
-    if len(df_plate_layout[["drug", "concentration"]].drop_duplicates())!=1: raise ValueError("There should be only one plate and concentration")
-    drug = df_plate_layout.drug.iloc[0]
-    concentration = df_plate_layout.concentration.iloc[0]
-
-
-    # experiment descrption: file describing the inoculation times, library and plate number for unique plates. 
-    exp_df = pd.DataFrame()
-
-    # get all plates
-    for I, plateBarcode in enumerate(set([x.split("-")[0] for x in all_df[0]])): 
-
-        startTime = min(all_df[all_df[0].apply(lambda x: x.startswith(plateBarcode))][0].apply(lambda y: "-".join(y.split("-")[1:])))
-        dict_data = {"Barcode":plateBarcode, "Start.Time":startTime, "Treatment": plate_batch, "Medium":"[%s]=%s"%(drug, concentration) ,"Screen":"screen", "Library":"strain", "Plate": plate, "RepQuad":1}
-
-        exp_df = exp_df.append(pd.DataFrame({k: {I+1 : v} for k, v in dict_data.items()}))
-
-    # write
-    exp_df.to_csv("%s/%s/ExptDescription.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=True)
-
-    # library description: where you state, for each plate (from 1, 2, 3 ... and as many plates defined in ExptDescription.Plate, the name and the ORF, if interestning)
-    lib_df = pd.DataFrame()
-
-    # define the rows and cols
-    nWells_ro_NrowsNcols = {96:(8, 12)}
-
-    for barcode, plateID in exp_df[["Barcode", "Plate"]].values:
-        for row in range(1, nWells_ro_NrowsNcols[96][0]+1):
-            for col in range(1, nWells_ro_NrowsNcols[96][1]+1):
-
-                # get the strain
-                strain = df_plate_layout.loc[(row, col), "strain"]
-
-                # add to df
-                dict_data = {"Library":"strain", "ORF":strain, "Plate":plateID, "Row":row, "Column":col, "Notes":""}
-                lib_df = lib_df.append(pd.DataFrame({k: {plateID : v} for k, v in dict_data.items()}))
-
-    # write
-    lib_df.to_csv("%s/%s/LibraryDescriptions.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=True)
-
-    # orf-to-gene to get the strains in the plot
-    orf_to_gene_df = pd.DataFrame({0:list(df_plate_layout.strain), 1:list(df_plate_layout.strain)})
-    orf_to_gene_df.to_csv("%s/%s/ORF2GENE.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=False)
-
-    #############################################################
-
 
     ##### RUN QFA AND SAVE #####
 
@@ -975,9 +893,148 @@ def get_df_fitness_measurements_one_parm_set(outdir_all, outdir_name, plate_batc
 
     return get_tab_as_df_or_empty_df(df_fitness_measurements_file)
 
+
+def get_growth_measurements_one_plate_batch_and_plate(Ibatch, nbatches, images_folder, outdir_all, plate_batch, plate, sorted_image_names, processed_images_dir_each_plate, reference_plate, df_plate_layout, hours_experiment):
+
+    """For one plate batch and plate, runs colonyzer to get raw growth and fitness measurements."""
+
+    print_with_runtime("Getting fitness measurements for plate_batch-plate %i/%i: %s-plate%i"%(Ibatch, nbatches, plate_batch, plate))
+
+    # define final file
+    outdir_name = "output_%s"%("_".join(sorted(parms_colonyzer)))
+    integrated_growth_df_file = "%s/%s/all_images_data.tab"%(outdir_all, outdir_name)
+    if file_is_empty(integrated_growth_df_file):
+
+        ########## RUN COLONYZER #############
+
+        # prepare dirs
+        make_folder(outdir_all)
+
+        # clean the hidden files from images_folder
+        for f in os.listdir(images_folder):
+            if f.startswith("."): remove_file("%s/%s"%(images_folder, f))
+
+        # move into the images dir
+        initial_dir = os.getcwd()
+        os.chdir(images_folder)
+
+        # check 
+        if file_is_empty("./Colonyzer.txt"): raise ValueError("Colonyzer.txt should exist in %s"%images_folder)
+
+        # define the image names that you expect
+        image_names_withoutExtension = set({x.split(".")[0] for x in sorted_image_names})
+
+        # run colonyzer for all parameters
+        run_colonyzer_one_set_of_parms(parms_colonyzer, outdir_all, image_names_withoutExtension, processed_images_dir_each_plate, reference_plate)
+
+        # go back to the initial dir
+        os.chdir(initial_dir)
+
+        ######################################
+
+        ############ CREATE DAT FILE ##############
+
+        # get the data path
+        data_path = "%s/%s/Output_Data"%(outdir_all, outdir_name)
+
+        # generate a df with fitness info of all images
+        all_df = pd.DataFrame()
+
+        for f in [x for x in os.listdir(data_path) if x.endswith(".dat")]: 
+            df = pd.read_csv("%s/%s"%(data_path, f), sep="\t", header=None)
+            all_df = all_df.append(df)
+
+        # add barcode in the first place, instead of the filename
+        all_df[0] = get_barcode_for_filenames(all_df[0])
+
+        # sort the values
+        all_df = all_df.sort_values(by=[0,1,2])
+
+        # change the NaN by "NA"
+        def change_NaN_to_str(cell):
+            if pd.isna(cell): return "NA"
+            else: return cell
+
+        all_df = all_df.applymap(change_NaN_to_str)
+
+        # use qfa to generate the df with growth
+        integrated_growth_df_dat_file = "%s/%s/all_images_data.dat"%(outdir_all, outdir_name)
+        all_df.to_csv(integrated_growth_df_dat_file, sep="\t", index=False, header=False)
+
+        ###########################################
+
+        ######### CREATE EXTRA FIELDS ########
+
+        # create the files that are necessary for the R qfa package to generate the output files
+
+        # keep the plate layout that is interesting here
+        df_plate_layout = df_plate_layout[(df_plate_layout.plate_batch==plate_batch) & (df_plate_layout.plate==plate)].set_index(["row", "column"])
+
+        # checks
+        if len(df_plate_layout[["drug", "concentration"]].drop_duplicates())!=1: raise ValueError("There should be only one plate and concentration")
+        drug = df_plate_layout.drug.iloc[0]
+        concentration = df_plate_layout.concentration.iloc[0]
+
+        # experiment descrption: file describing the inoculation times, library and plate number for unique plates. 
+        exp_df = pd.DataFrame()
+
+        # get all plates
+        for I, plateBarcode in enumerate(set([x.split("-")[0] for x in all_df[0]])): 
+
+            startTime = min(all_df[all_df[0].apply(lambda x: x.startswith(plateBarcode))][0].apply(lambda y: "-".join(y.split("-")[1:])))
+            dict_data = {"Barcode":plateBarcode, "Start.Time":startTime, "Treatment": plate_batch, "Medium":"[%s]=%s"%(drug, concentration) ,"Screen":"screen", "Library":"strain", "Plate": plate, "RepQuad":1}
+
+            exp_df = exp_df.append(pd.DataFrame({k: {I+1 : v} for k, v in dict_data.items()}))
+
+        # write
+        exp_df.to_csv("%s/%s/ExptDescription.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=True)
+
+        # library description: where you state, for each plate (from 1, 2, 3 ... and as many plates defined in ExptDescription.Plate, the name and the ORF, if interestning)
+        lib_df = pd.DataFrame()
+
+        # define the rows and cols
+        nWells_ro_NrowsNcols = {96:(8, 12)}
+
+        for barcode, plateID in exp_df[["Barcode", "Plate"]].values:
+            for row in range(1, nWells_ro_NrowsNcols[96][0]+1):
+                for col in range(1, nWells_ro_NrowsNcols[96][1]+1):
+
+                    # get the strain
+                    strain = df_plate_layout.loc[(row, col), "strain"]
+
+                    # add to df
+                    dict_data = {"Library":"strain", "ORF":strain, "Plate":plateID, "Row":row, "Column":col, "Notes":""}
+                    lib_df = lib_df.append(pd.DataFrame({k: {plateID : v} for k, v in dict_data.items()}))
+
+        # write
+        lib_df.to_csv("%s/%s/LibraryDescriptions.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=True)
+
+        # orf-to-gene to get the strains in the plot
+        orf_to_gene_df = pd.DataFrame({0:list(df_plate_layout.strain), 1:list(df_plate_layout.strain)})
+        orf_to_gene_df.to_csv("%s/%s/ORF2GENE.txt"%(outdir_all, outdir_name), sep="\t", index=False, header=False)
+
+        ######################################
+
+        ########### GET GROWTH DF ##########
+
+        # generate the plots with R
+        fitness_measurements_std = "%s/fitness_measurements.std"%data_path
+        days_experiment = hours_experiment/24
+        try: run_cmd("/workdir_app/scripts/get_fitness_measurements.R %s %s > %s 2>&1"%("%s/%s"%(outdir_all, outdir_name), days_experiment, fitness_measurements_std), env="main_env")
+        except: raise ValueError("Error in get_fitness_measurements.R. This is the log:\n---\n%s\n---"%("".join(open(fitness_measurements_std, "r").readlines())))
+        remove_file(fitness_measurements_std)
+
+        # keep
+        os.rename("%s/%s/processed_all_data.tbl"%(outdir_all, outdir_name), integrated_growth_df_file)
+
+        ####################################
+    
+
 def get_df_integrated_fitness_measurements_one_plate_batch_and_plate(Ibatch, nbatches, images_folder, outdir_all, plate_batch, plate, sorted_image_names, df_plate_layout, processed_images_dir_each_plate, reference_plate):
 
     """Analyzes the images from images_folder, writing into outdir_all."""
+
+    this_function_is_obsolete
 
     # log
     print_with_runtime("Analyzing images for plate_batch-plate %i/%i: %s-plate%i"%(Ibatch, nbatches, plate_batch, plate))
@@ -1318,7 +1375,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
 
             # define the log2_concentration
             pseudocount_log2_concentration = sorted_concentrations[0]/2
-            fitness_df["log2_concentration"] = np.log2(fitness_df.concentration + pseudocount_log2_concentration)
+            fitness_df_d["log2_concentration"] = np.log2(fitness_df_d.concentration + pseudocount_log2_concentration)
 
             # map each drug to the expected concentrations
             concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
@@ -1571,7 +1628,8 @@ def get_value_to_color(values, palette="mako", n=100, type_color="rgb", center=N
 # define the descriptions of fitness estimates
 fe_to_description = {"K" : "Parameter of a generalised logistic model that is fit to the data. Maximum predicted cell density",
                      "r": "Generalised logistic model rate parameter",
-                     "nAUC": "Numerical Area Under Curve. This is a model-free fitness estimate",
+                     "nAUC" : "Area Under (time-vs-growth) Curve at t=hours_experiment (empiric estimate)",
+                     "nSTP" : "Growth at t=hours_experiment",
                      "nr": " Numerical estimate of intrinsic growth rate. Growth rate estimated by fitting smoothing function to log of data, calculating numerical slope estimate across range of data and selecting the maximum estimate (should occur during exponential phase)",
                      "nr_t": "Time at which maximum slope of log observations occurs (~lag phase)",
                      "maxslp": "Numerical estimate of maximum slope of growth curve",
@@ -1579,7 +1637,7 @@ fe_to_description = {"K" : "Parameter of a generalised logistic model that is fi
                      "MDR": "Maximum Doubling Rate",
                      "MDP": "Maximum Doubling Potential",
                      "DT": "Doubling Time. Estimated from the fit parms at t0. May be biased if there is lag phase",
-                     "AUC": "Area Under Curve (from model fit)",
+                     "AUC": "Area Under (time-vs-growth) Curve at t=hours_experiment (from model fit)",
                      "MDRMDP": "Addinall et al. style fitness",
                      "DT_h": "max DT in hours. This is a numerical estimate from data",
                      "DT_h_goodR2": "max DT in hours. This is a numerical estimate from data, only considering fits with r2>0.9",
@@ -1675,7 +1733,7 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
 
                 estimate_to_label = {"median_rAUC":"rAUC$_{%s}$"%max_conc, "median_MIC50":"MIC$_{50}$", "median_SMG-MIC50":"SMG$_{50}$"}
                 g.ax_heatmap.set_xticklabels([estimate_to_label[e] for e in df_plot.columns], rotation=90, fontsize=fontsize_all)
-                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
+                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all, rotation=0)
                 g.ax_heatmap.set_xlabel("")
                 g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
                 g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
@@ -1841,7 +1899,7 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     # labels
     g.ax_heatmap.set_xticklabels(sorted_concentrations, rotation=90, fontsize=fontsize_all)
-    g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all)
+    g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all, rotation=0)
     g.ax_heatmap.set_xlabel("[%s]"%drug, fontsize=fontsize_all)
     g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
     g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
@@ -2788,6 +2846,9 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
         # add the plate layout
         copy_file(plate_layout_file, "%s/plate_layout.xlsx"%reduced_input_dir)
 
+        # add the cmd file
+        copy_file("/small_inputs/command.txt", "%s/command.txt"%reduced_input_dir)
+
         # copy a subset of images
         for plate_batch, sorted_raw_images in plate_batch_to_raw_images.items():
             subset_images = [sorted_raw_images[int(idx)] for idx in np.linspace(0, len(sorted_raw_images)-1, 4)]
@@ -2908,9 +2969,6 @@ def run_analyze_images_run_colonyzer_subset_images(outdir, reference_plate):
     # give permissions
     run_cmd("chmod -R 777 %s"%colonyzer_runs_subset_dir)
     #print("colonyzer-based grid check took %.2fs"%(time.time()-start_time))
-
-
-
 
 def is_outlier(L, x, multiplier=2.5):
 
@@ -3282,7 +3340,17 @@ def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offs
 
         ###############################
 
-def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, min_nAUC_to_beConsideredGrowing, reference_plate):
+# functions fitness
+def get_rsquare_to0(rsq):
+    if rsq>0: return rsq
+    else: return 0.0
+
+maxDT_h = 25.0
+def get_DT_good_rsq(DT_h, rsq, rsq_tshd=0.9):
+    if rsq>=rsq_tshd: return DT_h
+    else: return maxDT_h
+
+def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, min_nAUC_to_beConsideredGrowing, reference_plate, hours_experiment):
 
     """Generates the fitness measurements."""
 
@@ -3304,7 +3372,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
 
     ###################
 
-    ##### RUN THE IMAGE ANALYSIS PIPELINE FOR EACH PLATE AND PLATE SET #####
+    ########### GET GROWTH MEASUREMENTS ################
 
     # define the iterable inputs_fn_coords 
     inputs_fn_coords = []
@@ -3324,36 +3392,31 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         # add the images
         plate_batch_to_images[plate_batch] = sorted({f for f in os.listdir(dest_processed_images_dir) if not f.startswith(".") and f not in {"Colonyzer.txt.tmp", "Colonyzer.txt"}}, key=get_yyyymmddhhmm_tuple_one_image_name)
 
+    # define dir of growth
+    outdir_growth_calculations = "%s/growth_calculations"%tmpdir; make_folder(outdir_growth_calculations)
 
+    # go through each plate and plate set and run the growth calculations
+    print("Getting fitness measurements in parallel on %i threads..."%multiproc.cpu_count())
 
-    # go through each plate and plate set and run the fitness calculations
-    outdir_fitness_calculations = "%s/fitness_calculations"%tmpdir; make_folder(outdir_fitness_calculations)
-    inputs_fn_fitness = []
+    inputs_fn_growth = [(I+1, len(inputs_fn_coords), proc_images_folder, "%s/%s_plate%i"%(outdir_growth_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], processed_images_dir_each_plate, reference_plate, cp.deepcopy(df_plate_layout), hours_experiment) for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords)]
+    run_function_in_parallel(inputs_fn_growth, get_growth_measurements_one_plate_batch_and_plate)
 
-    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): inputs_fn_fitness.append((I+1, len(inputs_fn_coords), proc_images_folder, "%s/%s_plate%i"%(outdir_fitness_calculations, plate_batch, plate), plate_batch, plate, plate_batch_to_images[plate_batch], cp.deepcopy(df_plate_layout), processed_images_dir_each_plate, reference_plate))
+    ####################################################
 
-    print_with_runtime("Analyzing images in parallel on %i threads..."%multiproc.cpu_count())
-    run_function_in_parallel(inputs_fn_fitness, get_df_integrated_fitness_measurements_one_plate_batch_and_plate)
+    ######## GET INTEGRATED GROWTH DF ##########
 
-    # integrate the results of the fitness
-    print_with_runtime("Integrating fitness datasets...")
-
-    # define the merging fields
+    # get the integrated growth dataset
     merge_fields = ["plate_batch", "plate", "row", "column"]
-
-    # define the fields
     df_growth_fields = merge_fields + ['X.Offset', 'Y.Offset', 'Area', 'Trimmed', 'Threshold', 'Intensity', 'Edge.Pixels', 'redMean', 'greenMean', 'blueMean', 'redMeanBack', 'greenMeanBack', 'blueMeanBack', 'Edge.Length', 'Tile.Dimensions.X', 'Tile.Dimensions.Y', 'x', 'y', 'Diameter', 'Date.Time', 'Inoc.Time', 'Timeseries.order', 'Expt.Time', 'Growth']
 
-    df_fitness_measurements = pd.DataFrame()
-    df_growth_measurements_all_timepoints = pd.DataFrame()
+    # generate df
+    print("Generating table with all growth / fitness measurements")
+    df_growth_measurements_all = pd.DataFrame()
     for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
 
-        # get the fitness df
-        df_fitness_measurements_batch =  get_tab_as_df_or_empty_df("%s/%s_plate%i/integrated_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
-        df_fitness_measurements = df_fitness_measurements.append(df_fitness_measurements_batch)
-
         # get the growth measurements for all time points
-        df_growth_measurements = get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/processed_all_data.tbl"%(outdir_fitness_calculations, plate_batch, plate))
+        outdir_p = "%s/%s_plate%i/output_diffims_greenlab_lc"%(outdir_growth_calculations, plate_batch, plate)
+        df_growth_measurements = get_tab_as_df_or_empty_df("%s/all_images_data.tab"%outdir_p)
         df_growth_measurements["plate_batch"] = plate_batch
         df_growth_measurements["plate"] = plate
 
@@ -3361,17 +3424,62 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         df_growth_measurements = df_growth_measurements.rename(columns={"Row":"row", "Column":"column"})[df_growth_fields]
 
         # print nans in blueMeanBack
-        df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)][["Growth", "Expt.Time"]]
+        df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)][["Trimmed", "Expt.Time"]]
         if len(df_test)>0: raise ValueError("There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel."%(plate_batch, plate))
 
         # keep
-        df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.append(df_growth_measurements)
+        df_growth_measurements_all = df_growth_measurements_all.append(df_growth_measurements)
 
         # keep the growth curves in the final output
-        copy_file("%s/%s_plate%i/output_diffims_greenlab_lc/output_plots.pdf"%(outdir_fitness_calculations, plate_batch, plate), "%s/batch_%s-plate%i.pdf"%(growth_curves_dir, plate_batch, plate))
+        copy_file("%s/output_plots.pdf"%outdir_p, "%s/batch_%s-plate%i.pdf"%(growth_curves_dir, plate_batch, plate))
 
-    # add the plate layout info
-    df_growth_measurements_all_timepoints = df_growth_measurements_all_timepoints.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="many_to_one").reset_index(drop=True)
+    # get the pseudocount
+    pseudocounts_g = set(df_growth_measurements_all[df_growth_measurements_all["Timeseries.order"]==1].Growth)
+    if len(pseudocounts_g)!=1: raise ValueError("There should be 1 pseudocounts_g")
+    growth_pseudocount = next(iter(pseudocounts_g))
+
+    # checks of growth
+    df_growth_measurements_all["Growth_no_pseudo"] = df_growth_measurements_all.Growth - growth_pseudocount
+    check_no_nans_series(df_growth_measurements_all["Growth"])
+    if any(df_growth_measurements_all["Growth_no_pseudo"]<0): raise ValueError("Growth should be >=0")
+    if any(df_growth_measurements_all["Growth"]==np.inf): raise ValueError("Growth should not be inf")
+    if any(df_growth_measurements_all["Growth"]==-np.inf): raise ValueError("Growth should not be -inf")
+
+    growth_pseudocount_fraction_max = growth_pseudocount / max(df_growth_measurements_all["Growth_no_pseudo"])
+    if growth_pseudocount_fraction_max>0.1: raise ValueError("The pseudocount added on growth should not be >10% of the maximum growth")
+    print("Adding a pseudocount of %s to Growth in all spots. This represents %.3f%s of the maximum observed Growth."%(growth_pseudocount, growth_pseudocount_fraction_max*100, "%"))
+    
+    # add fields
+    df_growth_measurements_all["experiment_name"] = experiment_name
+    df_growth_measurements_all = df_growth_measurements_all.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="many_to_one").reset_index(drop=True)
+
+    # checks
+    for k in set(df_growth_measurements_all.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all[k])
+
+    # save
+    save_df_as_tab(df_growth_measurements_all[df_growth_fields], "%s/growth_measurements_all_timepoints.csv"%extended_outdir)
+
+    ######################################
+
+    ############ GET INTEGRATED FITNESS DF ################
+
+    print("Generating table with fitness estimates...")
+    df_fitness_measurements = pd.DataFrame()
+    for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
+
+        # get the fitness df
+        df_fitness_measurements_batch =  get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/logRegression_fits.tbl"%(outdir_growth_calculations, plate_batch, plate))
+
+        # add fields
+        df_fitness_measurements_batch["plate"] = plate
+        df_fitness_measurements_batch["plate_batch"] = plate_batch
+        df_fitness_measurements_batch["spotID"] = df_fitness_measurements_batch.apply(lambda r: "%s_%s"%(r["Row"], r["Column"]), axis=1)
+        df_fitness_measurements_batch["rsquare"] = df_fitness_measurements_batch.rsquare.apply(get_rsquare_to0)
+        df_fitness_measurements_batch["DT_h_goodR2"] = df_fitness_measurements_batch.apply(lambda r: get_DT_good_rsq(r["DT_h"], r["rsquare"]), axis=1)
+        df_fitness_measurements_batch["inv_DT_h_goodR2"] = 1 / df_fitness_measurements_batch.DT_h_goodR2
+
+        # keep
+        df_fitness_measurements = df_fitness_measurements.append(df_fitness_measurements_batch)
 
     # keep some fields and merge the df_fitness_measurements
     df_fitness_measurements = df_fitness_measurements.rename(columns={"Row":"row", "Column":"column"})
@@ -3381,16 +3489,8 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
 
     # checks
     for k in df_fitness_measurements.keys(): check_no_nans_series(df_fitness_measurements[k])
-    for k in set(df_growth_measurements_all_timepoints.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all_timepoints[k])
 
-
-    # add exp name
-    df_growth_measurements_all_timepoints["experiment_name"] = experiment_name
-
-    # save the dataframe with all the timepoonts
-    save_df_as_tab(df_growth_measurements_all_timepoints.drop(['bad_spot'], axis=1), "%s/growth_measurements_all_timepoints.csv"%extended_outdir)
-
-    ########################################################################
+    #######################################################
 
     ####### GENERATE FILES DERIVED FROM THE INTEGRATED ANALYSIS OF FITNESS DF #########
     print_with_runtime("Detecting bad spots...")
@@ -3420,7 +3520,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         df_offsets["row"] = df_offsets.row.apply(lambda x: num_to_letter[x])
 
         # define a df with the growth at different timepoints
-        df_growth_all = cp.deepcopy(df_growth_measurements_all_timepoints[["plate_batch", "plate", "row", "column", "strain", "Growth", "Expt.Time"]]).set_index(["plate_batch", "plate", "strain"], drop=False)
+        df_growth_all = cp.deepcopy(df_growth_measurements_all[["plate_batch", "plate", "row", "column", "strain", "Growth", "Expt.Time"]]).set_index(["plate_batch", "plate", "strain"], drop=False)
         df_growth_all["row"] = df_growth_all.row.apply(lambda x: num_to_letter[x])
 
         # define the box size as the mean of distance between adjacent boxes. This is specific to each plate
@@ -3543,8 +3643,8 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         """
 
         # init variables
-        fitness_estimates  = ["K", "r", "nr", "nr_t", "maxslp", "maxslp_t", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2"]
-        fitness_estimates_susc = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "AUC", "nAUC"] # these are estimates that are correlated to growth rate
+        fitness_estimates  = ["K", "r", "nr", "nr_t", "maxslp", "maxslp_t", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2", "nSTP"]
+        fitness_estimates_susc = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "AUC", "nAUC", "nSTP"] # these are estimates that are correlated to growth rate
 
 
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
