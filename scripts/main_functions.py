@@ -238,6 +238,37 @@ def generate_module_window():
     window.mainloop()
     if opt.module is None: raise ValueError("You should select the module")
 
+
+def generate_boolean_args_window(title='Remove the output folder\nand re-do all analyses?', subtitle="(set 'No' to re-start from a previous run)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="replace"):
+
+    """Gets the boolean args window"""
+
+    window = tk.Tk()
+    window.geometry("%ix210"%(window_width))
+    window.title(pipeline_name)
+
+    tk.Label(window, text="\n%s\n"%title, font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text="\n%s"%subtitle, font=('Arial bold',12)).pack(side=tk.TOP)
+
+    dict_data = {"run_click":False}
+    for val, text in textVal_list: 
+
+        def set_item_fn(x = val):
+
+            if opt_att=="replace": opt.replace = x
+            elif opt_att=="keep_tmp_files": opt.keep_tmp_files = x
+            elif opt_att=="auto_accept": opt.auto_accept = x
+            elif opt_att=="enhance_image_contrast": opt.enhance_image_contrast = x
+            else: raise ValueError("invalid %s"%opt_att)
+            dict_data["run_click"] = True
+
+            window.destroy()
+
+        tk.Button(window, text="%s"%(text), padx=15, pady=15, font=('Arial bold',13), command=set_item_fn).pack(side=tk.LEFT, expand=True)
+
+    window.mainloop()
+    if dict_data["run_click"] is False: raise ValueError("You should click one of the options")
+
 def generate_replace_window():
 
     """Generates the replace window"""
@@ -380,14 +411,60 @@ def generate_analyze_images_window_mandatory():
 
 
 def generate_analyze_images_window_optional():
+    
+    """Generates one window for the image analysis"""
+
+    # init window
+    window = tk.Tk()
+    window.geometry("%ix550"%(window_width))
+    window.title(pipeline_name)
+
+    # text
+    tk.Label(window, text='\nTune optional parameters', font=('Arial bold',15)).pack(side=tk.TOP)
+
+    # add the entry of the min_nAUC_to_beConsideredGrowing
+    tk.Label(window, text='\n1) Hours experiment:', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='(Hours of experiment (float)\nfor fitness measurements)', font=('Arial bold',13)).pack(side=tk.TOP)
+    hours_experiment_entry = tk.Entry(window, font=('Arial bold',13))
+    hours_experiment_entry.insert(0, str(opt.hours_experiment))
+    hours_experiment_entry.pack(side=tk.TOP, expand=True)
+
+    # add the entry of the min_nAUC_to_beConsideredGrowing
+    tk.Label(window, text='\n2) min nAUC growing:', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='(minimum nAUC (float)\nto be considered growing)\n(0.1 is reasonable for 24h)', font=('Arial bold',13)).pack(side=tk.TOP)
+    min_nAUC_to_beConsideredGrowing_entry = tk.Entry(window, font=('Arial bold',13))
+    min_nAUC_to_beConsideredGrowing_entry.insert(0, str(opt.min_nAUC_to_beConsideredGrowing))
+    min_nAUC_to_beConsideredGrowing_entry.pack(side=tk.TOP, expand=True)
+
+    # run and capture the entries
+    tk.Label(window, text='\n3) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
+    dict_data = {"run_click":False}
+    def run_module(): 
+
+        # get the extra measurements
+        opt.min_nAUC_to_beConsideredGrowing = float(min_nAUC_to_beConsideredGrowing_entry.get())
+        opt.hours_experiment = float(hours_experiment_entry.get())
+        dict_data["run_click"] = True
+
+        # run
+        window.destroy()
+    
+    tk.Button(window, text="Run", padx=15, pady=15, font=('Arial bold',13), command=run_module).pack(side=tk.TOP, expand=True)
+
+    # run and debug
+    window.mainloop()
+    if dict_data["run_click"] is False: raise ValueError("You should click on Run")
+
+def generate_analyze_images_window_optional_old():
 
     """Generates one window for the image analysis"""
 
+    this_is_obolete
     print("WARNING: You need to tune this window.")
 
     # init window
     window = tk.Tk()
-    window.geometry("%ix850"%(window_width))
+    window.geometry("%ix600"%(window_width))
     window.title(pipeline_name)
 
     # text

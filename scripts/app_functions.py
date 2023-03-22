@@ -2056,9 +2056,7 @@ def plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filenam
 
         # add lines
         if fitness_estimate.endswith("_rel"): lines_y = [0, 0.5, 1]
-        else: lines_y = [0]
-
-        if median_fe_conc0>1: lines_y.append(median_fe_conc0)
+        else: lines_y = [0, median_fe_conc0]
         for y in lines_y: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
 
         # change the xtciks to have actual concentrations
@@ -2812,7 +2810,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     # log
     #start_time_rotation_contrast = time.time()
 
-    # increase contrast all plates together
+    # increase contrast all plates together. This is too heacy on the ram.
     """
     if enhance_image_contrast is True:
         print("Enhancing image contrast...")
@@ -3604,8 +3602,9 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
         first_pb, first_p = list(plate_batch_plate_to_images.keys())[0]
         test_image = "%s/%s_plate%i/%s"%(processed_images_dir_each_plate, first_pb, first_p, plate_batch_plate_to_images[(first_pb, first_p)][0])
         single_image_w, single_image_h = PIL_Image.open(test_image).size
+        width_midbox = int(single_image_w/30)
         nimages_subset= 3
-        merged_image = PIL_Image.new('RGB', (len(sorted_concentrations)*single_image_w, (nimages_subset+1)*single_image_h), (255, 255, 255))
+        merged_image = PIL_Image.new('RGB', (len(sorted_concentrations)*single_image_w + width_midbox*(len(sorted_concentrations)+1), (nimages_subset+1)*single_image_h + width_midbox*(nimages_subset+2)), (255, 255, 255))
 
         # map each replicateID to a color
         all_reps = sorted(set(df_growth.replicateID))
@@ -3653,7 +3652,7 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
             plt.close(fig)
 
             # add to the merged image
-            merged_image.paste(PIL_Image.open(filename_curves), (Ic*single_image_w, 0))
+            merged_image.paste(PIL_Image.open(filename_curves), ((Ic*single_image_w) + (Ic*width_midbox) + width_midbox, width_midbox))
             os.unlink(filename_curves)
 
         ########################################
@@ -3701,7 +3700,7 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
                     draw.rectangle((x, y, x + box_size, y + box_size), outline=repID_to_color[r.replicateID], width=7) # x0, y0, x1, y1
 
                 # add to merged image
-                merged_image.paste(image_object, (Ic*single_image_w, (Ii+1)*single_image_h))
+                merged_image.paste(image_object, ((Ic*single_image_w) + (Ic*width_midbox) + width_midbox, width_midbox + (Ii+1)*width_midbox + (Ii+1)*single_image_h))
 
         ###################################
 

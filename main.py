@@ -76,14 +76,18 @@ if len(sys.argv)==1:
     # generate the window of each type of args
     fun.generate_analyze_images_window_mandatory()
 
-    # define the replace window
-    fun.generate_replace_window()
+
+    # generate windows for boolean arguments
+    fun.generate_boolean_args_window(title='Remove the output folder\nand re-do all analyses?', subtitle="(set 'No' to re-start from a previous run)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="replace")
+    fun.generate_boolean_args_window(title='Remove temporary files\nat the end?', subtitle="(set 'No' to debug)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="keep_tmp_files")
+    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="auto_accept")
+    fun.generate_boolean_args_window(title='Enhance image contrast?', subtitle="(You may skip this if you want to\nintegrate results of various experiments)", textVal_list=[('True', "Yes"), ('False', "No")], opt_att="enhance_image_contrast")
+
 
     # define the output and input
     opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
 
     # generate the image analysis
-    modify_optional_args
     fun.generate_analyze_images_window_optional()
 
     # generate the closing window
@@ -121,7 +125,6 @@ fun.print_with_runtime("Writing results into the output folder '%s', using input
 arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("hours_experiment", opt.hours_experiment), ("enhance_image_contrast", opt.enhance_image_contrast)]])
 
 if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
-if opt.replace is True: arguments += " --replace"
 if opt.auto_accept is True: arguments += " --auto_accept"
 
 full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
@@ -158,12 +161,7 @@ plate_layout_is_different = (not fun.file_is_empty(copied_plate_layout) and not 
 cmd_is_different = (not fun.file_is_empty(full_command_file) and open(full_command_file, "r").readlines()[0].strip()!=full_command)
 
 # if there was a previous run (copied_plate_layout exists), replace everything if the plate layout changed
-if plate_layout_is_different or cmd_is_different:
-
-    fun.print_with_runtime("WARNING: You are providing a different plate layout, or running with a different command, than in a previous run\n")
-    fun.backwards_timer_print_text(15, 'WARNING: Thus, deleting previously-generated files in <output> in ')
-    fun.delete_folder(opt.output)
-    fun.print_with_runtime("WARNING: Previously-generated files in <output> deleted.")
+if plate_layout_is_different or cmd_is_different: raise ValueError("You are providing a different plate layout, or running with a different command, than in a previous run. You should run with the --replace argument.")
 
 # make the input dir
 fun.make_folder(opt.output)
