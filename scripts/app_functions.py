@@ -2055,7 +2055,9 @@ def plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filenam
         ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
 
         # add lines
-        lines_y = [0, 0.5, 1]
+        if fitness_estimate.endswith("_rel"): lines_y = [0, 0.5, 1]
+        else: lines_y = [0]
+
         if median_fe_conc0>1: lines_y.append(median_fe_conc0)
         for y in lines_y: plt.axhline(y, color="gray", linestyle="--", linewidth=0.7)
 
@@ -3184,7 +3186,7 @@ def load_object(filename):
     return pickle.load(open(filename,"rb"))
 
 
-def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offsets, df_growth, merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, box_size):
+def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offsets, df_growth, merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, box_size, hours_experiment):
 
     """Generates one merged image for a bad spot"""
 
@@ -3198,8 +3200,17 @@ def generate_merged_image_test_bad_spot(plate_batch, plate, row, column, df_offs
 
         ###### CREATE IMAGES ####
 
+        # keep only grwoth of hours experiment
+        days_experiment = hours_experiment/24
+        df_growth = df_growth[df_growth["Expt.Time"]<=days_experiment]
+
+        # define valid images (those that are below hours experiment)
+        df_growth["img_file"] = df_growth["Date.Time"].apply(get_img_file_from_DateTime)
+        valid_images = set(df_growth["img_file"])
+
         # define images
-        all_images = plate_batch_to_images[plate_batch]
+        all_images = [img for img in plate_batch_to_images[plate_batch] if img in valid_images] 
+        if set(all_images)!=valid_images: raise ValueError("all_images is different to valid_images")
         if len(all_images)<3: raise ValueError("There are <3 images for plate_batch %s. This does not allow for a proper analysis"%plate_batch)
 
         # get subset of images
@@ -3458,6 +3469,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
 
     # save
     save_df_as_tab(df_growth_measurements_all[df_growth_fields], "%s/growth_measurements_all_timepoints.csv"%extended_outdir)
+    save_object(df_growth_measurements_all, "%s/growth_measurements_all_timepoints.py"%tmpdir)
 
     ######################################
 
@@ -3520,7 +3532,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         df_offsets["row"] = df_offsets.row.apply(lambda x: num_to_letter[x])
 
         # define a df with the growth at different timepoints
-        df_growth_all = cp.deepcopy(df_growth_measurements_all[["plate_batch", "plate", "row", "column", "strain", "Growth", "Expt.Time"]]).set_index(["plate_batch", "plate", "strain"], drop=False)
+        df_growth_all = cp.deepcopy(df_growth_measurements_all[["plate_batch", "plate", "row", "column", "strain", "Growth", "Expt.Time", "Date.Time"]]).set_index(["plate_batch", "plate", "strain"], drop=False)
         df_growth_all["row"] = df_growth_all.row.apply(lambda x: num_to_letter[x])
 
         # define the box size as the mean of distance between adjacent boxes. This is specific to each plate
@@ -3537,17 +3549,168 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         # run generation of images in parallel
         #print_with_runtime("Generating bad-spot images in parallel in %i threads..."%multiproc.cpu_count())
         df_offsets = df_offsets.set_index(["plate_batch", "plate", "strain"])
-        inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), cp.deepcopy(df_growth_all.loc[{(r.plate_batch, r.plate, r.strain)}].reset_index(drop=True)), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)]) for I, r in df_bad_spots_auto.iterrows()]
+        inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), cp.deepcopy(df_growth_all.loc[{(r.plate_batch, r.plate, r.strain)}].reset_index(drop=True)), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)], hours_experiment) for I, r in df_bad_spots_auto.iterrows()]
         run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_test_bad_spot)
 
     # save files, marking the end
     save_object(df_fitness_measurements, "%s/df_fitness_measurements.py"%tmpdir)
     save_df_as_tab(df_bad_spots, "%s/df_bad_spots_automatic.tab"%tmpdir)
 
-    ###################################################################################
+    ##################################################################################
 
 
-def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, min_nAUC_to_beConsideredGrowing):
+def get_img_file_from_DateTime(dt):
+
+    """Gets date time and returns the filename"""
+
+    year, month, day = dt.split("_")[0].split("-")
+    hour, minunte, sec = dt.split("_")[1].split("-")
+
+    return "img_0_%s%s%s_%s%s.tif"%(year, month, day, hour, minunte)
+
+def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_fitness, outdir, plots_dir, hours_experiment):
+
+    """For one strain, generate a plot that has all the images and growth curves. Each column should be one concentration."""
+
+    # define filename
+    filename = "%s/growth_curves_and_images_%s_%s.png"%(plots_dir, drug, strain)
+    if file_is_empty(filename):
+        #print("Getting plot for strain %s"%strain)
+
+        #### GET INPUTS ####
+
+        # get df growth of this strain and drug
+        df_growth_all = load_object("%s/tmp/growth_measurements_all_timepoints.py"%outdir)
+
+        merge_fields = ["plate_batch", "plate", "row", "column"]
+        extra_fields = ["idx_correct_rel_estimates", "replicateID", "nAUC"]
+        df_growth = df_growth_all.merge(df_fitness[merge_fields + extra_fields].drop_duplicates(), on=merge_fields, validate="many_to_one", how="left")
+        df_growth = df_growth[(df_growth.strain==strain) & ((df_growth.drug==drug) | (df_growth.concentration==0))]
+        for f in extra_fields: check_no_nans_series(df_growth[f])
+        df_growth["img_file"] = df_growth["Date.Time"].apply(get_img_file_from_DateTime)
+
+        # keep only timepoints that are below the hours_experiment
+        days_experiment = hours_experiment/24
+        df_growth = df_growth[df_growth["Expt.Time"]<=days_experiment]
+
+        # get the images of each plate batch
+        processed_images_dir_each_plate = "%s/tmp/processed_images_each_plate"%outdir
+        plate_batch_plate_to_images = {(plate_batch, plate) : list(df_growth[(df_growth.plate_batch==plate_batch) & (df_growth.plate==plate)][["Expt.Time", "img_file"]].drop_duplicates().sort_values(by="Expt.Time").img_file) for plate_batch, plate in df_fitness[["plate_batch", "plate"]].drop_duplicates().values}
+
+        # define all the concentrations
+        sorted_concentrations = sorted(set(df_growth.concentration))
+
+        # init output_image
+        first_pb, first_p = list(plate_batch_plate_to_images.keys())[0]
+        test_image = "%s/%s_plate%i/%s"%(processed_images_dir_each_plate, first_pb, first_p, plate_batch_plate_to_images[(first_pb, first_p)][0])
+        single_image_w, single_image_h = PIL_Image.open(test_image).size
+        nimages_subset= 3
+        merged_image = PIL_Image.new('RGB', (len(sorted_concentrations)*single_image_w, (nimages_subset+1)*single_image_h), (255, 255, 255))
+
+        # map each replicateID to a color
+        all_reps = sorted(set(df_growth.replicateID))
+        if len(all_reps)<=10: palette_reps = "tab10"
+        else: palette_reps = "tab20"
+        repID_to_color = get_value_to_color(all_reps, palette=palette_reps, n=len(all_reps), type_color="hex")[0]
+
+        ####################
+
+        ######### ADD GROWTH CURVES ############
+
+        # add the spot, which contains the nAUC
+        df_growth["spot & nAUC"] = df_growth.replicateID + " (" + df_growth.nAUC.apply(lambda x: "%.2f"%x) + ")"
+
+        # each concentration
+        for Ic, concentration in enumerate(sorted_concentrations):
+
+            # get df
+            df_g = df_growth[df_growth.concentration==concentration]
+            spot_to_color = {spot : repID_to_color[repID] for spot,repID in df_g[["spot & nAUC", "replicateID"]].drop_duplicates().values}
+            df_g["type spot"] = df_g.idx_correct_rel_estimates.map({True:"used", False:"discarded"}); check_no_nans_series(df_g["type spot"])
+
+            # init figure to mimic the ones of the images
+            dpi = 100
+            fig_size = (single_image_w/dpi, single_image_h/dpi)
+            fig = plt.figure(figsize=fig_size)
+
+            # create
+            sns.set(font_scale=2)
+            sns.set_style("white")
+            df_g["hours"] = df_g["Expt.Time"] * 24
+            ax = sns.lineplot(data=df_g, x="hours", y="Growth", hue="spot & nAUC", units="spot & nAUC",  estimator=None, lw=3, palette=spot_to_color, style="type spot")
+            sns.despine()
+
+            ax.set_xlabel("Time (hours)")
+            ax.set_ylabel("\nCell density (AU)")
+            ax.set_title("\nstrain=%s, [%s]=%s"%(strain, drug, concentration))
+
+            # change axes
+            ax.set_ylim([0, max(df_growth.Growth)+0.1])
+
+            # save
+            filename_curves = "%s.growth_curves_%s.png"%(filename, concentration)
+            fig.savefig(filename_curves, bbox_inches='tight', dpi=dpi)
+            plt.close(fig)
+
+            # add to the merged image
+            merged_image.paste(PIL_Image.open(filename_curves), (Ic*single_image_w, 0))
+            os.unlink(filename_curves)
+
+        ########################################
+
+        ########## ADD IMAGES #############
+
+        # each concentration
+        for Ic, concentration in enumerate(sorted_concentrations):
+
+            # get df
+            df_g = df_growth[df_growth.concentration==concentration]
+
+            # get subset images
+            all_pb_ps = set(df_g[["plate_batch", "plate"]].drop_duplicates().apply(tuple, axis=1))
+            if len(all_pb_ps)!=1: raise ValueError("there should be only 1")
+            plate_batch, plate = next(iter(all_pb_ps))
+            all_images = plate_batch_plate_to_images[(plate_batch, plate)]
+            subset_images = [all_images[int(idx)] for idx in np.linspace(0, len(all_images)-1, nimages_subset)]
+
+            # define the box_size
+            df_offsets_plate = df_growth_all[(df_growth_all.plate_batch==plate_batch) & (df_growth_all.plate==plate) & (df_growth_all["Expt.Time"]==0)][["row", "column", "X.Offset", "Y.Offset"]].drop_duplicates().set_index(["row", "column"], drop=False)
+
+            box_size_rows = [df_offsets_plate.loc[(n_row+1, 1), "Y.Offset"] - df_offsets_plate.loc[(n_row, 1), "Y.Offset"] for n_row in range(1,8)]
+            box_size_cols = [df_offsets_plate.loc[(1, col+1), "X.Offset"] - df_offsets_plate.loc[(1, col), "X.Offset"] for col in range(1,12)]
+            box_size = int(np.mean(box_size_rows + box_size_cols))
+
+            # each image
+            for Ii, img_file in enumerate(subset_images):
+                
+                # load image
+                image_object = PIL_Image.open("%s/%s_plate%i/%s"%(processed_images_dir_each_plate, plate_batch, plate, img_file))
+
+                # check
+                w,h = image_object.size
+                if w!=single_image_w: raise ValueError("All images should have the same width")
+                if h!=single_image_h: raise ValueError("All images should have the same height")
+
+                # init draw object
+                draw = ImageDraw.Draw(image_object)
+
+                # add one square to each spot
+                for idx, r in df_growth[(df_growth.img_file==img_file) & (df_growth.plate_batch==plate_batch) & (df_growth.plate==plate)].iterrows():
+                    x = r["X.Offset"]
+                    y = r["Y.Offset"]
+                    draw.rectangle((x, y, x + box_size, y + box_size), outline=repID_to_color[r.replicateID], width=7) # x0, y0, x1, y1
+
+                # add to merged image
+                merged_image.paste(image_object, (Ic*single_image_w, (Ii+1)*single_image_h))
+
+        ###################################
+
+        # save image
+        filename_tmp = "%s.tmp.png"%filename
+        merged_image.save(filename_tmp)
+        os.rename(filename_tmp, filename)
+
+def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, min_nAUC_to_beConsideredGrowing, hours_experiment):
 
     """
     Writes the integrated fitness and susceptibility measurements.
@@ -3650,7 +3813,6 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
 
-
         # add an idx that indicates if the row is valid for relative fitness an susceptibility measurements
         df_fitness_measurements["idx_correct_rel_estimates"] = ((df_fitness_measurements.conc0_is_growing) & ~(df_fitness_measurements.conc0_is_bad_spot) & (df_fitness_measurements.n_non0_concentrations_bad_spot<2) & ~(df_fitness_measurements.bad_spot))
 
@@ -3687,6 +3849,18 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         ######### MAKE PLOTS ##########
 
+        # make plots of each strain with the images and plots
+        all_strains = sorted(set(df_fitness_measurements.strain))
+        dir_growth_curves_and_images = "%s/growth_curves_and_images"%extended_outdir; make_folder(dir_growth_curves_and_images)
+
+        for drug in drug_to_nconcs.keys():
+            print("Getting plots with growth curves and images for drug %s..."%drug)
+
+            outdir_plots = "%s/%s"%(dir_growth_curves_and_images, drug); make_folder(outdir_plots)
+            df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
+            inputs_fn_plots_strain = [(s, drug, cp.deepcopy(df_fit[df_fit.strain==s]), outdir, outdir_plots, hours_experiment) for I,s in enumerate(all_strains)]
+            run_function_in_parallel(inputs_fn_plots_strain, generate_plot_growth_curves_and_images_one_strain_and_drug)
+
         # make lineplots of concentration-vs-fitness
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_lines"%extended_outdir
         plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="only_correct_spots", only_absolute_estimates=False)
@@ -3701,6 +3875,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         # make heatmap of concentration-vs-fitness
         outdir_heatmaps_extended = "%s/drug_vs_fitness_heatmaps"%extended_outdir
         plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
+
 
         ###############################
 

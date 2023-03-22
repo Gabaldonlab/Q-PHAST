@@ -39,11 +39,11 @@ parser.add_argument("--replace", dest="replace", required=False, default=False, 
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.1, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--hours_experiment", dest="hours_experiment", required=False, type=float, default=24.0, help="A float that indicates the total experiment hours that are used to calculate the fitness estimates.")
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
+parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 
 # developer args 
 parser.add_argument("--reference_plate", dest="reference_plate", required=False,  type=str, default=None, help="The plate to take as reference. It should be a plate with high growth in many spots. For example 'SC1-plate1' could be passed to this argument.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
-parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
 
 # graveyard args
@@ -122,6 +122,7 @@ arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("
 
 if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
 if opt.replace is True: arguments += " --replace"
+if opt.auto_accept is True: arguments += " --auto_accept"
 
 full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
 fun.print_with_runtime("Executing the following command (you may use it to reproduce the analysis):\n---\n%s\n---"%full_command)

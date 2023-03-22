@@ -54,7 +54,7 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     # run the python script
     if fun.file_is_empty(finish_file):
 
-        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.1"%(main_script, running_os, input_dir, output_dir)
+        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.1 --enhance_image_contrast True --hours_experiment 24.0"%(main_script, running_os, input_dir, output_dir)
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
         if "keep_tmp" in all_args: cmd += " --keep_tmp_files"
         fun.run_cmd(cmd)     
@@ -95,7 +95,7 @@ for p in sorted(os.listdir(playouts_dir)):
             if fun.file_is_empty("%s%s%s"%(images_dir_dest, os_sep, f)): fun.copy_file("%s%s%s"%(images_dir_source, os_sep, f), "%s%s%s"%(images_dir_dest, os_sep, f))
 
         # define cmd
-        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.1"%(main_script, running_os, input_dir, output_dir)
+        cmd = "python %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.1 --enhance_image_contrast True --hours_experiment 24.0"%(main_script, running_os, input_dir, output_dir)
         if "keep_tmp" in all_args: cmd += " --keep_tmp_files"
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
 
