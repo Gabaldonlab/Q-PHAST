@@ -239,7 +239,7 @@ def generate_module_window():
     if opt.module is None: raise ValueError("You should select the module")
 
 
-def generate_boolean_args_window(title='Remove the output folder\nand re-do all analyses?', subtitle="(set 'No' to re-start from a previous run)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="replace"):
+def generate_boolean_args_window(title='Remove the output folder\nand re-do all analyses?', subtitle="(set 'No' to re-start from a previous run)", textVal_list=[(True, "Yes", "Arial bold"), (False, "No", "Arial")], opt_att="replace"):
 
     """Gets the boolean args window"""
 
@@ -251,7 +251,7 @@ def generate_boolean_args_window(title='Remove the output folder\nand re-do all 
     tk.Label(window, text="\n%s"%subtitle, font=('Arial bold',12)).pack(side=tk.TOP)
 
     dict_data = {"run_click":False}
-    for val, text in textVal_list: 
+    for val, text, font_name in textVal_list: 
 
         def set_item_fn(x = val):
 
@@ -264,7 +264,7 @@ def generate_boolean_args_window(title='Remove the output folder\nand re-do all 
 
             window.destroy()
 
-        tk.Button(window, text="%s"%(text), padx=15, pady=15, font=('Arial bold',13), command=set_item_fn).pack(side=tk.LEFT, expand=True)
+        tk.Button(window, text="%s"%(text), padx=15, pady=15, font=(font_name,13), command=set_item_fn).pack(side=tk.LEFT, expand=True)
 
     window.mainloop()
     if dict_data["run_click"] is False: raise ValueError("You should click one of the options")
@@ -416,13 +416,13 @@ def generate_analyze_images_window_optional():
 
     # init window
     window = tk.Tk()
-    window.geometry("%ix550"%(window_width))
+    window.geometry("%ix600"%(window_width))
     window.title(pipeline_name)
 
     # text
     tk.Label(window, text='\nTune optional parameters', font=('Arial bold',15)).pack(side=tk.TOP)
 
-    # add the entry of the min_nAUC_to_beConsideredGrowing
+    # add the entry of the hours_experiment
     tk.Label(window, text='\n1) Hours experiment:', font=('Arial bold',15)).pack(side=tk.TOP)
     tk.Label(window, text='(Hours of experiment (float)\nfor fitness measurements)', font=('Arial bold',13)).pack(side=tk.TOP)
     hours_experiment_entry = tk.Entry(window, font=('Arial bold',13))
@@ -436,14 +436,24 @@ def generate_analyze_images_window_optional():
     min_nAUC_to_beConsideredGrowing_entry.insert(0, str(opt.min_nAUC_to_beConsideredGrowing))
     min_nAUC_to_beConsideredGrowing_entry.pack(side=tk.TOP, expand=True)
 
+    # add the entry of the enhance_image_contrast
+    tk.Label(window, text='\n3) Enhance image contrast?', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='(True/False, necessary in some plates)', font=('Arial bold',13)).pack(side=tk.TOP)
+    enhance_image_contrast_entry = tk.Entry(window, font=('Arial bold',13))
+    enhance_image_contrast_entry.insert(0, str(opt.enhance_image_contrast))
+    enhance_image_contrast_entry.pack(side=tk.TOP, expand=True)
+
+
     # run and capture the entries
-    tk.Label(window, text='\n3) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
+    tk.Label(window, text='\n4) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
     dict_data = {"run_click":False}
     def run_module(): 
 
         # get the extra measurements
         opt.min_nAUC_to_beConsideredGrowing = float(min_nAUC_to_beConsideredGrowing_entry.get())
         opt.hours_experiment = float(hours_experiment_entry.get())
+        opt.enhance_image_contrast = {"true":"True", "false":"False"}[str(enhance_image_contrast_entry.get()).lower()]
+
         dict_data["run_click"] = True
 
         # run

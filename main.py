@@ -19,9 +19,7 @@ import main_functions as fun
 description = """
 This is a pipeline to measure antifungal susceptibility from image data in any OS. Run with: 
 
-    In linux and mac: 'python3 main.py <arguments>'
-
-    In windows: 'py main.py <arguments>'
+    'python main.py <arguments>'
 
 Check the github repository (https://github.comGabaldonlab/Q-PHAST) to know how to use this script.
 """
@@ -35,22 +33,16 @@ parser.add_argument("--input", dest="input", required=False, default=None, type=
 
 # optional arguments
 parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (forqca debugging).")
-parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.1, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--hours_experiment", dest="hours_experiment", required=False, type=float, default=24.0, help="A float that indicates the total experiment hours that are used to calculate the fitness estimates.")
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 
 # developer args 
+parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
 parser.add_argument("--reference_plate", dest="reference_plate", required=False,  type=str, default=None, help="The plate to take as reference. It should be a plate with high growth in many spots. For example 'SC1-plate1' could be passed to this argument.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
-
-# graveyard args
-#parser.add_argument("--pseudocount_log2_concentration", dest="pseudocount_log2_concentration", required=False, type=float, default=0.1, help="A float that is used to pseudocount the concentrations for susceptibility measures.")
-#parser.add_argument("--min_points_to_calculate_resistance_auc", dest="min_points_to_calculate_resistance_auc", required=False, type=int, default=4, help="An integer number indicating the minimum number of points required to calculate the rAUC for susceptibility measures.")
-
-
 
 # parse
 opt = parser.parse_args()
@@ -76,13 +68,9 @@ if len(sys.argv)==1:
     # generate the window of each type of args
     fun.generate_analyze_images_window_mandatory()
 
-
     # generate windows for boolean arguments
-    fun.generate_boolean_args_window(title='Remove the output folder\nand re-do all analyses?', subtitle="(set 'No' to re-start from a previous run)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="replace")
-    fun.generate_boolean_args_window(title='Remove temporary files\nat the end?', subtitle="(set 'No' to debug)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="keep_tmp_files")
-    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes"), (False, "No")], opt_att="auto_accept")
-    fun.generate_boolean_args_window(title='Enhance image contrast?', subtitle="(You may skip this if you want to\nintegrate results of various experiments)", textVal_list=[('True', "Yes"), ('False', "No")], opt_att="enhance_image_contrast")
-
+    fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
+    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="auto_accept")
 
     # define the output and input
     opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
