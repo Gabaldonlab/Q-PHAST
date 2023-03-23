@@ -1702,8 +1702,9 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
                     else: df_plot_nonans_zscore[col] = scipy.stats.zscore(df_plot_nonans[col])
 
                 # init clustermap with the z-score of the three values, so that the strains are clustered based on that
-                g = sns.clustermap(df_plot_nonans_zscore, row_cluster=True, col_cluster=False, linecolor="gray", linewidth=0)
+                g = sns.clustermap(df_plot_nonans_zscore, row_cluster=True, col_cluster=False, linecolor="gray", linewidth=0, yticklabels=1)
                 ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+                if set(ordered_strains)!=set(df_plot_nonans_zscore.index): raise ValueError("The yticklabels should include all strains")
 
                 # change positions
                 hm_height_multiplier = 0.04
@@ -1853,7 +1854,7 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     # get clustermap
     max_val = max(df_fit_per_strain.upper_bound_median)
-    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap="rocket_r", linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="")
+    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap="rocket_r", linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1)
 
     # map the value to color
     all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
@@ -1861,6 +1862,7 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     # get the ordered ytick labels as in g
     ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+    if set(ordered_strains)!=set(df_plot.index): raise ValueError("The yticklabels should include all strains")
 
     # add the MAD for strains with >1 replicate
     for Ic, conc in enumerate(sorted_concentrations):
