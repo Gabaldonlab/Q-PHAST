@@ -47,7 +47,7 @@ elif len(reference_plate.split("-"))==2 and reference_plate.split("-")[1].starts
 else: raise ValueError("The argument passed to --reference_plate (%s) should have the format <plate_batch>-plate<plateID>. For example 'SC1-plate1'."%reference_plate)
 
 # process images
-if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["enhance_image_contrast"])], reference_plate)
+if os.environ["MODULE"]=="analyze_images_process_images": fun.run_analyze_images_process_images("%s/plate_layout.xlsx"%SmallInputs, ImagesDir, OutDir, bool_dict[str(os.environ["enhance_image_contrast"])], reference_plate, str(os.environ["contrast_enhancement_image"]))
 
 # perform growth measurements for one image
 elif os.environ["MODULE"]=="analyze_images_run_colonyzer_subset_images": fun.run_analyze_images_run_colonyzer_subset_images(OutDir, reference_plate)

@@ -2699,13 +2699,35 @@ def get_contrast_for_image(filename):
 
     """Gets the contrast for the image"""
 
-    # load image and get stat
-    stat = ImageStat.Stat(PIL_Image.open(filename))
+    # load image and get RMS, a good wasy to measure contrast
+    contrast_value = ImageStat.Stat(PIL_Image.open(filename)).rms[0]
 
     # returrn contrast
-    return stat.mean[0]
+    return contrast_value
 
-def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast, reference_plate):
+def generate_auto_image_high_contrast(filename, ref_image, square_size=100):
+
+    """Generates a image with high contrast"""
+
+    if file_is_empty(filename):
+
+        # get size
+        width, height = PIL_Image.open(ref_image).size
+
+        # Create a new image with the specified size and gray background
+        image = PIL_Image.new('RGB', (width, height), color='gray')
+
+        # Iterate over the pixels in the image and set their color to black or white based on their position
+        for x in range(width):
+            for y in range(height):
+                if (x // square_size) % 2 == (y // square_size) % 2: # the higher the 100, the bigger the squares
+                    image.putpixel((x, y), (0, 0, 0))
+        # save
+        filename_tmp = "%s.tmp.tif"%filename
+        image.save(filename_tmp)
+        os.rename(filename_tmp, filename)
+
+def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enhance_image_contrast, reference_plate, contrast_enhancement_image):
 
     """Takes the images and generates processed images that are cropped to be one in each plate"""
 
@@ -2817,13 +2839,30 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
         plate_batch_to_raw_outdir = get_images_with_enhanced_contrast_all_images_concatenated(tmpdir, plate_batch_to_raw_outdir, plate_batch_to_images, image_ending) # this is not efficient because it does not scale
     """
 
-    # define the image with the highest contrast for reference
+    # amongst the images you have get the one with the highest cotrast
     all_images = sorted(make_flat_listOflists([["%s/%s"%(plate_batch_to_raw_outdir[pb], img) for img in images] for pb, images in plate_batch_to_images.items()]))
     image_to_contrast = pd.Series(dict(zip(all_images, map(get_contrast_for_image, all_images))))
-    image_highest_contrast = image_to_contrast.sort_values().index[-1]
+    real_image_highest_contrast = image_to_contrast.sort_values().index[-1]
+
+    # define the image of contrast for reference
+    if contrast_enhancement_image=="image_high_contrast":
+        image_high_contrast = real_image_highest_contrast
+        print("Using image with highest contrast (%s) as reference for contrast enhancement..."%("/".join(image_high_contrast.split("/")[-2:])))
+
+    elif contrast_enhancement_image=="auto":
+        image_high_contrast = "%s/black_white_image_high_contrast.tif"%tmpdir
+        generate_auto_image_high_contrast(image_high_contrast, "%s/%s"%(plate_batch_to_raw_outdir[plate_batch], plate_batch_to_images[plate_batch][0]), square_size=100)
+        print("Using automatic high-contrast image as reference for contrast enhancement...")
+
+    else: raise ValueError("invalid contrast_enhancement_image: %s"%contrast_enhancement_image)
+
+    # check that contrast correction is reasonable
+    if enhance_image_contrast is True and get_contrast_for_image(real_image_highest_contrast)>get_contrast_for_image(image_high_contrast): raise ValueError("The image with highest contrast has a higher contrast value (RMS=%.2f) than the image used as reference for contrast correction (RMS=%.2f). This is not allowed because it may bias the data. This likely means that your images have high contrast, so that you can run with enhance_image_contrast:False."%(get_contrast_for_image(real_image_highest_contrast), get_contrast_for_image(image_high_contrast)))
+
 
     # rotate each plate set at the same time (not in parallel). Also increase contrast.
-    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, enhance_image_contrast, image_highest_contrast)
+    for I, plate_batch in enumerate(sorted(plate_batch_to_images)): process_image_rotation_all_images_batch(I+1, len(plate_batch_to_raw_outdir),plate_batch_to_raw_outdir[plate_batch], plate_batch_to_processed_outdir[plate_batch], plate_batch, plate_batch_to_images[plate_batch], image_ending, enhance_image_contrast, image_high_contrast)
+
 
     # log
     #print_with_runtime("Rotating images and Improving contrast took %.3f seconds"%(time.time()-start_time_rotation_contrast))

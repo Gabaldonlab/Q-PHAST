@@ -32,17 +32,19 @@ parser.add_argument("--docker_image", dest="docker_image", required=False, defau
 parser.add_argument("--input", dest="input", required=False, default=None, type=str, help="A folder with the plate layout and the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'.")
 
 # optional arguments
-parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (forqca debugging).")
 parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.1, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--hours_experiment", dest="hours_experiment", required=False, type=float, default=24.0, help="A float that indicates the total experiment hours that are used to calculate the fitness estimates.")
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
 
 # developer args 
-parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes.")
-parser.add_argument("--reference_plate", dest="reference_plate", required=False,  type=str, default=None, help="The plate to take as reference. It should be a plate with high growth in many spots. For example 'SC1-plate1' could be passed to this argument.")
+parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (for debugging). Only for developers.")
+parser.add_argument("--replace", dest="replace", required=False, default=False, action="store_true", help="Remove the --output folder to repeat any previously run processes. Only for developers.")
+parser.add_argument("--reference_plate", dest="reference_plate", required=False,  type=str, default=None, help="The plate to take as reference. It should be a plate with high growth in many spots. For example 'SC1-plate1' could be passed to this argument. Only for developers.")
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
+parser.add_argument("--contrast_enhancement_image", dest="contrast_enhancement_image", required=False,  type=str, default='auto', help="The plate to take as reference for contrast correction. It can be 'image_high_contrast' or 'auto'. Our testing suggests that 'auto' is better. Only for developers.")
+
 
 # parse
 opt = parser.parse_args()
@@ -69,8 +71,8 @@ if len(sys.argv)==1:
     fun.generate_analyze_images_window_mandatory()
 
     # generate windows for boolean arguments
-    fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
-    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="auto_accept")
+    # fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
+    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept")
 
     # define the output and input
     opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
@@ -99,6 +101,7 @@ if opt.output is None: raise ValueError("You should provide a string in --output
 opt.input = fun.get_fullpath(opt.input)
 opt.output = fun.get_fullpath(opt.output)
 if not os.path.isdir(opt.input): raise ValueError("The folder provided in --input does not exist")
+if opt.contrast_enhancement_image not in {"image_high_contrast", "auto"}: raise ValueError("contrast_enhancement_image should be 'image_high_contrast' or 'auto'")
 
 # replace
 if opt.replace is True: fun.delete_folder(opt.output)
@@ -111,8 +114,6 @@ fun.print_with_runtime("Writing results into the output folder '%s', using input
 
 # print the cmd
 arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("hours_experiment", opt.hours_experiment), ("enhance_image_contrast", opt.enhance_image_contrast)]])
-
-if opt.keep_tmp_files is True: arguments += " --keep_tmp_files"
 if opt.auto_accept is True: arguments += " --auto_accept"
 
 full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
@@ -121,6 +122,7 @@ fun.print_with_runtime("Executing the following command (you may use it to repro
 # check that the docker image can be run
 fun.print_with_runtime("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
 fun.run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
+
 
 #############################
 
@@ -156,7 +158,7 @@ fun.make_folder(opt.output)
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e hours_experiment=%s -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.hours_experiment, opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), tmp_input_dir, opt.output, opt.input)
+docker_cmd = 'docker run --rm -it -e contrast_enhancement_image=%s -e hours_experiment=%s -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.contrast_enhancement_image, opt.hours_experiment, opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), tmp_input_dir, opt.output, opt.input)
 
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
