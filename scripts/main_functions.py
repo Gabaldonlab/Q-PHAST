@@ -173,15 +173,18 @@ def generate_closing_window(text_print):
     # add label
     tk.Label(window, text="\n%s"%text_print, font=('Arial bold',15)).pack(side=tk.TOP)
 
-    # close after 1,5s
-    window.after(1500, close_window)
+    # close after 1s
+    window.after(1000, close_window)
 
     # in MAC do some extra steps
     if opt.os in {"mac"}:
 
         # run and close. this works on mac only
         while True:
-            try: window.update()
+            try: 
+                window.update()
+                if not window.winfo_exists(): break # break if the window exists
+
             except: break
 
     # in other OSs

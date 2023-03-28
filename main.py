@@ -65,6 +65,7 @@ if len(sys.argv)==1:
 
     # generate a series of buttons that select common arguments
     fun.generate_os_window()
+
     fun.generate_docker_image_window()
 
     # generate the window of each type of args
