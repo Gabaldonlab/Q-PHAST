@@ -20,8 +20,13 @@ import main_functions as fun
 # get args
 if len(sys.argv)>1: all_args = set(sys.argv[1:])
 else: all_args = set()
-strange_args = all_args.difference({"out_in_desktop", "auto", "keep_tmp"})
+strange_args = all_args.difference({"out_in_desktop", "auto", "keep_tmp", "sudo"})
 if len(strange_args): raise ValueError("invalid args: %s"%strange_args)
+
+# define the python executable
+if "sudo" in all_args: python_exec = "sudo %s"%sys.executable
+else: python_exec = sys.executable
+print("Running python with '%s ...'"%python_exec)
 
 # define the OS
 running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.system()]
@@ -55,7 +60,7 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     # run the python script
     if fun.file_is_empty(finish_file):
 
-        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast True --hours_experiment 24.0"%(sys.executable, main_script, running_os, input_dir, output_dir)
+        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast True --hours_experiment 24.0"%(python_exec, main_script, running_os, input_dir, output_dir)
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
         if "keep_tmp" in all_args: cmd += " --keep_tmp_files"
         fun.run_cmd(cmd)     
@@ -96,7 +101,7 @@ for p in sorted(os.listdir(playouts_dir)):
             if fun.file_is_empty("%s%s%s"%(images_dir_dest, os_sep, f)): fun.copy_file("%s%s%s"%(images_dir_source, os_sep, f), "%s%s%s"%(images_dir_dest, os_sep, f))
 
         # define cmd
-        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast True --hours_experiment 24.0"%(sys.executable, main_script, running_os, input_dir, output_dir)
+        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast True --hours_experiment 24.0"%(python_exec, main_script, running_os, input_dir, output_dir)
         if "keep_tmp" in all_args: cmd += " --keep_tmp_files"
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
 
