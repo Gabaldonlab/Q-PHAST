@@ -32,7 +32,7 @@ parser.add_argument("--docker_image", dest="docker_image", required=False, defau
 parser.add_argument("--input", dest="input", required=False, default=None, type=str, help="A folder with the plate layout and the raw images to analyze. It should contain one subfolder (named after the plate batch) with the images of each 'plate_batch'.")
 
 # optional arguments
-parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.1, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
+parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beConsideredGrowing", required=False, type=float, default=0.02, help="A float that indicates the minimum nAUC to be considered growing in susceptibility measures. This may depend on the experiment. This is added in the 'is_growing' field.")
 parser.add_argument("--hours_experiment", dest="hours_experiment", required=False, type=float, default=24.0, help="A float that indicates the total experiment hours that are used to calculate the fitness estimates.")
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
@@ -71,9 +71,12 @@ if len(sys.argv)==1:
     # generate the window of each type of args
     fun.generate_analyze_images_window_mandatory()
 
+    # OLD # fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
+    # OLD # fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept")
+    
     # generate windows for boolean arguments
-    # fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
-    fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept")
+    fun.generate_boolean_args_window(title='Manual verification of\ncoordinates and bad spots?', subtitle="'Yes' ~ accurate results\n'No' ~ faster, risky run", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept_reverse")
+    opt.auto_accept = {True:False, False:True}[opt.auto_accept_reverse]
 
     # define the output and input
     opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)

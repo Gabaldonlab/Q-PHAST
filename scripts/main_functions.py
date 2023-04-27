@@ -261,6 +261,7 @@ def generate_boolean_args_window(title='Remove the output folder\nand re-do all 
             if opt_att=="replace": opt.replace = x
             elif opt_att=="keep_tmp_files": opt.keep_tmp_files = x
             elif opt_att=="auto_accept": opt.auto_accept = x
+            elif opt_att=="auto_accept_reverse": opt.auto_accept_reverse = x
             elif opt_att=="enhance_image_contrast": opt.enhance_image_contrast = x
             else: raise ValueError("invalid %s"%opt_att)
             dict_data["run_click"] = True
@@ -434,7 +435,7 @@ def generate_analyze_images_window_optional():
 
     # add the entry of the min_nAUC_to_beConsideredGrowing
     tk.Label(window, text='\n2) min nAUC growing:', font=('Arial bold',15)).pack(side=tk.TOP)
-    tk.Label(window, text='(minimum nAUC (float)\nto be considered growing)\n(0.1 is reasonable for 24h)', font=('Arial bold',13)).pack(side=tk.TOP)
+    tk.Label(window, text='(minimum nAUC (float)\nto be considered growing)\n(%s is reasonable for 24h)'%opt.min_nAUC_to_beConsideredGrowing, font=('Arial bold',13)).pack(side=tk.TOP)
     min_nAUC_to_beConsideredGrowing_entry = tk.Entry(window, font=('Arial bold',13))
     min_nAUC_to_beConsideredGrowing_entry.insert(0, str(opt.min_nAUC_to_beConsideredGrowing))
     min_nAUC_to_beConsideredGrowing_entry.pack(side=tk.TOP, expand=True)
@@ -472,7 +473,7 @@ def generate_analyze_images_window_optional_old():
 
     """Generates one window for the image analysis"""
 
-    this_is_obolete
+    this_is_obolete_raise_error
     print("WARNING: You need to tune this window.")
 
     # init window

@@ -1786,13 +1786,20 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
                                 g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Ir+0.5], edgecolor="gray", facecolor=val_to_color[find_nearest(np.array(sorted(set(val_to_color.keys()))), val)],  s=25, linewidth=.4, zorder=2)
 
                     # add colorbar
+                    ticks_vals = list(np.linspace(0, max(sorted_vals), 3))
+                    ticks_list = [get_clean_float_value(y) for y in ticks_vals]
+                    cax.set_yticks(ticks_vals)
+                    cax.set_yticklabels(ticks_list)
+
                     cmap = plt.get_cmap(palette)
                     norm = plt.Normalize(vmin=0, vmax=max(sorted_vals))
-                    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, ticks=[get_clean_float_value(y) for y in np.linspace(0, max(sorted_vals), 3)])
+                    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, ticks=ticks_vals)
+
                     cb.ax.tick_params(labelsize=fontsize_all-4)
                     cax.set_title(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, pad=10, loc="center")
-                    #cb.set_label(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, rotation=270, labelpad=-1)
                     cb.outline.set_visible(False)
+
+                    #cb.set_label(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, rotation=270, labelpad=-1)
 
 
                 # add description at the bottom
@@ -3909,7 +3916,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         outdir_drug_vs_fitness_extended_all_spots = "%s/drug_vs_fitness_lines_all_spots"%extended_outdir
         plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="all_data", only_absolute_estimates=True)
 
-        # make the heatmap of the susceptibility measures
+        # make the heatmap of the susceptibility measures        
         if any(drug_to_nconcs>=2): plot_heatmap_susceptibility(susceptibility_df, "%s/susceptibility_heatmaps"%extended_outdir, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing)
 
         # make heatmap of concentration-vs-fitness
