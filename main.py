@@ -1,4 +1,4 @@
-# A python3 script to run the pipeline from any OS
+# A python3 script to run the Q-PHAST pipeline from any OS
 
 ############# ENV ############
 
