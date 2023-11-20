@@ -44,6 +44,7 @@ parser.add_argument("--reference_plate", dest="reference_plate", required=False,
 parser.add_argument("--break_after", dest="break_after", required=False, type=str, default=None, help="Break after some steps. Only for developers.")
 parser.add_argument("--coords_1st_plate", dest="coords_1st_plate", required=False, default=False, action="store_true", help="Automatically transfers the coordinates of the 1st plate. Only for developers.")
 parser.add_argument("--contrast_enhancement_image", dest="contrast_enhancement_image", required=False,  type=str, default='auto', help="The plate to take as reference for contrast correction. It can be 'image_high_contrast' or 'auto'. Our testing suggests that 'auto' is better. Only for developers.")
+parser.add_argument("--parms_colonyzer", dest="parms_colonyzer", required=False,  type=str, default="greenlab,lc,diffims", help="Set of extra parameters to pass to colonyzer as --<parm>.")
 
 
 # parse
@@ -107,6 +108,15 @@ opt.output = fun.get_fullpath(opt.output)
 if not os.path.isdir(opt.input): raise ValueError("The folder provided in --input does not exist")
 if opt.contrast_enhancement_image not in {"image_high_contrast", "auto"}: raise ValueError("contrast_enhancement_image should be 'image_high_contrast' or 'auto'")
 
+# check parms colonyzer
+set_parms = set(opt.parms_colonyzer.split(","))
+strange_parms = set_parms.difference({"greenlab", "lc", "diffims", "cut", "edgemask", "none"})
+if len(strange_parms)>0: raise ValueError("strange values passed to --parms_colonyzer: %s"%strange_parms)
+if "none" in set_parms and len(set_parms)!=1: raise ValueError("if you specify none to --parms_colonyzer, there can't  be anything else")
+
+# deifine the parms colonyzer
+fun.parms_colonyzer = tuple(sorted(set_parms))
+
 # replace
 if opt.replace is True: fun.delete_folder(opt.output)
 
@@ -117,7 +127,7 @@ if not opt.os in {"linux", "mac", "windows"}: raise ValueError("--os should have
 fun.print_with_runtime("Writing results into the output folder '%s', using input files from '%s'"%(opt.output, opt.input))
 
 # print the cmd
-arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("hours_experiment", opt.hours_experiment), ("enhance_image_contrast", opt.enhance_image_contrast)]])
+arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("hours_experiment", opt.hours_experiment), ("enhance_image_contrast", opt.enhance_image_contrast), ("parms_colonyzer", opt.parms_colonyzer)]])
 if opt.auto_accept is True: arguments += " --auto_accept"
 
 full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
@@ -126,7 +136,6 @@ fun.print_with_runtime("Executing the following command (you may use it to repro
 # check that the docker image can be run
 fun.print_with_runtime("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
 fun.run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
-
 
 #############################
 
@@ -162,7 +171,7 @@ fun.make_folder(opt.output)
 fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 
 # init command with general features
-docker_cmd = 'docker run --rm -it -e contrast_enhancement_image=%s -e hours_experiment=%s -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.contrast_enhancement_image, opt.hours_experiment, opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), tmp_input_dir, opt.output, opt.input)
+docker_cmd = 'docker run --rm -it -e contrast_enhancement_image=%s -e hours_experiment=%s -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -e PARMS_COLONYZER=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.contrast_enhancement_image, opt.hours_experiment, opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), opt.parms_colonyzer, tmp_input_dir, opt.output, opt.input)
 
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())

@@ -126,7 +126,7 @@ if (sum(data_colonyzer[data_colonyzer$Timeseries.order==1,]$Growth>0)>0){ stop("
 if (sum(is.na(data_colonyzer$Growth))>0){ stop("There are nans in Growth")}
 
 # add pseudount
-pseudocount_g = 0.01
+pseudocount_g = 0.001 # previously 0.01, too large generating problems
 data_colonyzer$Growth = (data_colonyzer$Growth)*1e7 + pseudocount_g
 
 # define the inocguess, which is the initial value for growth, which can be the median of all the growth parameters in the first timepoint

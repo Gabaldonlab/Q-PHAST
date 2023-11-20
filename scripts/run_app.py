@@ -23,6 +23,9 @@ import app_functions as fun
 # log
 #fun.print_with_runtime("running %s %s"%(fun.PipelineName, os.environ["MODULE"]))
 
+# define the colonyzer parameters
+fun.parms_colonyzer = tuple(sorted(os.environ["PARMS_COLONYZER"].split(",")))
+
 # get the start time
 start_time = time.time()
 

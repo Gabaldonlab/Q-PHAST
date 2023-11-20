@@ -714,7 +714,7 @@ def get_coordinates_are_correct_by_running_colonyzer_one_image(dest_processed_im
 
     # define the latest name
     latest_image = sorted_image_names[-1]
-    image_name = "%s%soutdir_colonyzer%soutput_diffims_greenlab_lc%sOutput_Images%s%s_AREA.png"%(images_for_colonyzer_dir, get_os_sep(), get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
+    image_name = "%s%soutdir_colonyzer%soutput_%s%sOutput_Images%s%s_AREA.png"%(images_for_colonyzer_dir, get_os_sep(), get_os_sep(), "_".join(sorted(parms_colonyzer)), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
     downsized_image_name = "%s%sresized_last_image.png"%(images_for_colonyzer_dir, get_os_sep())
 
     # generate downsized_image_name
@@ -874,7 +874,7 @@ def validate_colonyzer_coordinates_one_plate_batch_and_plate_GUI(tmpdir, plate_b
 
     # define the latest name with area infered
     latest_image = sorted_image_names[-1]
-    image_name = "%s%soutput_diffims_greenlab_lc%sOutput_Images%s%s.png"%(colonyzer_runs_subset_dir_plate, get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0]) # pixel intensity
+    image_name = "%s%soutput_%s%sOutput_Images%s%s.png"%(colonyzer_runs_subset_dir_plate, get_os_sep(),  "_".join(sorted(parms_colonyzer)), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0]) # pixel intensity
     #image_name = "%s%soutput_diffims_greenlab_lc%sOutput_Images%s%s_AREA.png"%(colonyzer_runs_subset_dir_plate, get_os_sep(), get_os_sep(), get_os_sep(), latest_image.split(".tif")[0])
 
     downsized_image_name = "%s.ds.png"%(image_name)

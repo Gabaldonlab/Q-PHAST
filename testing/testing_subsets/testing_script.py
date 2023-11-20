@@ -1,7 +1,10 @@
 # This is a python script to test that all the subsets testing work
 
+# for testing run python testing_script.py out_in_desktop  keep_tmp # auto, skip_enhance_image_contrast
+
 # imports
 import os, sys, platform
+
 
 # define the os_sep
 if "/" in os.getcwd(): os_sep = "/"
@@ -20,7 +23,7 @@ import main_functions as fun
 # get args
 if len(sys.argv)>1: all_args = set(sys.argv[1:])
 else: all_args = set()
-strange_args = all_args.difference({"out_in_desktop", "auto", "keep_tmp", "sudo"})
+strange_args = all_args.difference({"out_in_desktop", "auto", "keep_tmp", "sudo", "skip_enhance_image_contrast"})
 if len(strange_args): raise ValueError("invalid args: %s"%strange_args)
 
 # define the python executable
@@ -33,16 +36,27 @@ running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.sys
 
 # test each of the samples that should work
 print("Testing four different types of data...")
-for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
+#for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
+for d in ["Stress_plates_subset"]:
+
     print("testing %s..."%d)
 
     # define the dirs
     test_dir = "%s%s%s"%(CurDir, os_sep, d)
     input_dir_source = "%s%sinput"%(test_dir, os_sep)
 
+
+    # define enhance_image_contrast
+    if "skip_enhance_image_contrast" in all_args: enhance_image_contrast = "False"
+    else: enhance_image_contrast = "True"
+
+
     if "out_in_desktop" in all_args: 
-        output_dir = "%s/Desktop/testing_Q-PHAST_%s"%(os.getenv("HOME"), d)
-        input_dir = "%s/Desktop/testing_Q-PHAST_%s_input"%(os.getenv("HOME"), d)
+        output_dir = "%s/Desktop/Q-PHAST_out/testing_Q-PHAST_%s"%(os.getenv("HOME"), d)
+        input_dir = "%s/Desktop/Q-PHAST_out/testing_Q-PHAST_%s_input"%(os.getenv("HOME"), d)
+
+        # DELETE OUTDIR
+        # os.system("rm -rf '%s'"%output_dir) # debug
 
         if not os.path.isdir(input_dir):
             print("Generating input...")
@@ -60,11 +74,14 @@ for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "S
     # run the python script
     if fun.file_is_empty(finish_file):
 
-        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast True --hours_experiment 24.0"%(python_exec, main_script, running_os, input_dir, output_dir)
+        cmd = "%s %s --os %s --input %s --docker_image mikischikora/q-phast:v1 --output %s --min_nAUC_to_beConsideredGrowing 0.02 --enhance_image_contrast %s --hours_experiment 24.0 --parms_colonyzer lc,greenlab,diffims"%(python_exec, main_script, running_os, input_dir, output_dir, enhance_image_contrast) # default --parms_colonyzer greenlab,lc,diffims. Can also be none
         if "auto" in all_args: cmd += " --auto_accept --coords_1st_plate"
         if "keep_tmp" in all_args: cmd += " --keep_tmp_files"
         fun.run_cmd(cmd)     
         open(finish_file, "w").write("finished")
+
+
+dakgadkgd
 
 # test different plate layouts errors
 print("\n\nTesting different plate layouts...")

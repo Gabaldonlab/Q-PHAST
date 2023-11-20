@@ -37,7 +37,8 @@ CondaDir =  "/opt/conda"
 PipelineName = "Q-PHAST"
 blank_spot_names = {"h2o", "h20", "water", "empty", "blank"}
 allowed_image_endings = {"tiff", "jpg", "jpeg", "png", "tif", "gif"}
-parms_colonyzer = ("greenlab", "lc", "diffims")
+#parms_colonyzer = ("greenlab", "lc", "diffims") # original, most testing based on this
+#parms_colonyzer = ("") # no extra parms
 
 # functions
 def get_date_and_time_for_print():
@@ -732,13 +733,14 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
 
     """Runs colonyzer for a set of parms. This should be run from a directory where there are imnages"""
 
-    # sort
+    # get args
     sorted_parms = sorted(parms)
     parms_str = "_".join(sorted_parms)
-    extra_cmds_parmCombination = "".join([" --%s "%x for x in sorted_parms])
+    if sorted_parms==["none"]: extra_cmds_parmCombination = ""
+    else: extra_cmds_parmCombination = "".join([" --%s "%x for x in sorted_parms])
 
     # change the parms str if blank
-    if parms_str=="": parms_str = "noExtraParms"
+    #if parms_str=="": parms_str = "noExtraParms"
 
     # define the outdirs
     outdir = "%s/output_%s"%(outdir_all, parms_str)
@@ -795,7 +797,7 @@ def run_colonyzer_one_set_of_parms(parms, outdir_all, image_names_withoutExtensi
         # run colonizer, which will generate data under . (images_folder)
         colonyzer_exec = "%s/envs/colonyzer_env/bin/colonyzer"%CondaDir
         colonyzer_std = "%s.running_colonyzer.std"%outdir_tmp
-        colonyzer_cmd = "%s %s --plots --remove --initpos --fmt 96 > %s 2>&1"%(colonyzer_exec, extra_cmds_parmCombination, colonyzer_std)
+        colonyzer_cmd = "%s %s --plots --remove --initpos --fmt 96 > %s 2>&1"%(colonyzer_exec, extra_cmds_parmCombination, colonyzer_std) # --slopefill 0.9 is default, --slopefill 0.5 gave more simialr patterns of growth at high concentrations. slopefill 0.7 did not change
         run_cmd(colonyzer_cmd, env="colonyzer_env")
         remove_file(colonyzer_std)
 
@@ -1994,6 +1996,8 @@ def get_fe_description(fitness_estimate, type_data, min_nAUC_to_beConsideredGrow
 
     if type_data=="only_correct_spots": description += ". The only spots shown are those used in the susceptibility and relative fitness calculations (non-bad spots, w/ concentration==0 that is growing (nAUC>=%s) and non-bad spot, and w/ <2 concentrations being bad spots)."%min_nAUC_to_beConsideredGrowing
 
+    elif type_data=="only_not_bad_spots": description += ". The only spots shown are those used in the average raw fitness calculations (non-bad spots)."
+
     elif type_data=="all_data": description += ". All spots shown."
     else: raise ValueError("invalid type_data")
 
@@ -2162,11 +2166,20 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
                 df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)].set_index("strain"))
                 df_fit["drug"] = drug
 
-                # load inputs_fn
-                inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
 
+                # run fn
+                plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name)
+
+                # load inputs_fn
+                # inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
+
+    """
     # run in parallel
-    if len(inputs_fn)>0: run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug, ntries=2)
+    if len(inputs_fn)>0: 
+
+        #run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug, ntries=2)
+        for x in inputs_fn: plot_growth_at_different_drugs_one_fitness_estimate_and_drug(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8])
+    """
 
 def run_function_in_parallel(inputs_fn, parallel_fun, ntries=1):
 
@@ -2714,9 +2727,9 @@ def get_contrast_for_image(filename):
     # returrn contrast
     return contrast_value
 
-def generate_auto_image_high_contrast(filename, ref_image, square_size=100):
+def generate_auto_image_high_contrast(filename, ref_image, square_size=100, bg_color_img="black"):
 
-    """Generates a image with high contrast"""
+    """Generates a image with high contrast. Most testing on square_size=100. bg_color_img="gray". In black I see that it enhances contrast at max. """
 
     if file_is_empty(filename):
 
@@ -2724,12 +2737,12 @@ def generate_auto_image_high_contrast(filename, ref_image, square_size=100):
         width, height = PIL_Image.open(ref_image).size
 
         # Create a new image with the specified size and gray background
-        image = PIL_Image.new('RGB', (width, height), color='gray')
+        image = PIL_Image.new('RGB', (width, height), color=bg_color_img)
 
         # Iterate over the pixels in the image and set their color to black or white based on their position
         for x in range(width):
             for y in range(height):
-                if (x // square_size) % 2 == (y // square_size) % 2: # the higher the 100, the bigger the squares
+                if (x // square_size) % 2 == (y // square_size) % 2: # the higher the square_size, the bigger the squares
                     image.putpixel((x, y), (0, 0, 0))
         # save
         filename_tmp = "%s.tmp.tif"%filename
@@ -2856,17 +2869,17 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     # define the image of contrast for reference
     if contrast_enhancement_image=="image_high_contrast":
         image_high_contrast = real_image_highest_contrast
-        print("Using image with highest contrast (%s) as reference for contrast enhancement..."%("/".join(image_high_contrast.split("/")[-2:])))
+        if enhance_image_contrast is True: print("Using image with highest contrast (%s) as reference for contrast enhancement..."%("/".join(image_high_contrast.split("/")[-2:])))
 
     elif contrast_enhancement_image=="auto":
         image_high_contrast = "%s/black_white_image_high_contrast.tif"%tmpdir
-        generate_auto_image_high_contrast(image_high_contrast, "%s/%s"%(plate_batch_to_raw_outdir[plate_batch], plate_batch_to_images[plate_batch][0]), square_size=100)
-        print("Using automatic high-contrast image as reference for contrast enhancement...")
+        generate_auto_image_high_contrast(image_high_contrast, "%s/%s"%(plate_batch_to_raw_outdir[plate_batch], plate_batch_to_images[plate_batch][0]))
+        if enhance_image_contrast is True: print("Using automatic high-contrast image as reference for contrast enhancement...")
 
     else: raise ValueError("invalid contrast_enhancement_image: %s"%contrast_enhancement_image)
 
-    # check that contrast correction is reasonable
-    if enhance_image_contrast is True and get_contrast_for_image(real_image_highest_contrast)>get_contrast_for_image(image_high_contrast): raise ValueError("The image with highest contrast has a higher contrast value (RMS=%.2f) than the image used as reference for contrast correction (RMS=%.2f). This is not allowed because it may bias the data. This likely means that your images have high contrast, so that you can run with enhance_image_contrast:False."%(get_contrast_for_image(real_image_highest_contrast), get_contrast_for_image(image_high_contrast)))
+    # check that contrast correction is reasonable (only reasonable with generate_auto_image_high_contrast run without black)
+    # if enhance_image_contrast is True and get_contrast_for_image(real_image_highest_contrast)>get_contrast_for_image(image_high_contrast): raise ValueError("The image with highest contrast has a higher contrast value (RMS=%.2f) than the image used as reference for contrast correction (RMS=%.2f). This is not allowed because it may bias the data. This likely means that your images have high contrast, so that you can run with enhance_image_contrast:False."%(get_contrast_for_image(real_image_highest_contrast), get_contrast_for_image(image_high_contrast)))
 
 
     # rotate each plate set at the same time (not in parallel). Also increase contrast.
@@ -3472,7 +3485,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
 
         # get the growth measurements for all time points
-        outdir_p = "%s/%s_plate%i/output_diffims_greenlab_lc"%(outdir_growth_calculations, plate_batch, plate)
+        outdir_p = "%s/%s_plate%i/output_%s"%(outdir_growth_calculations, plate_batch, plate, "_".join(sorted(parms_colonyzer)))
         df_growth_measurements = get_tab_as_df_or_empty_df("%s/all_images_data.tab"%outdir_p)
         df_growth_measurements["plate_batch"] = plate_batch
         df_growth_measurements["plate"] = plate
@@ -3526,7 +3539,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     for I, (proc_images_folder, plate_batch, plate) in enumerate(inputs_fn_coords): 
 
         # get the fitness df
-        df_fitness_measurements_batch =  get_tab_as_df_or_empty_df("%s/%s_plate%i/output_diffims_greenlab_lc/logRegression_fits.tbl"%(outdir_growth_calculations, plate_batch, plate))
+        df_fitness_measurements_batch =  get_tab_as_df_or_empty_df("%s/%s_plate%i/output_%s/logRegression_fits.tbl"%(outdir_growth_calculations, plate_batch, plate, "_".join(sorted(parms_colonyzer))))
 
         # add fields
         df_fitness_measurements_batch["plate"] = plate
@@ -3614,7 +3627,7 @@ def get_img_file_from_DateTime(dt):
 
     return "img_0_%s%s%s_%s%s.tif"%(year, month, day, hour, minunte)
 
-def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_fitness, outdir, plots_dir, hours_experiment):
+def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_fitness, outdir, plots_dir, hours_experiment, field_type_spot):
 
     """For one strain, generate a plot that has all the images and growth curves. Each column should be one concentration."""
 
@@ -3629,7 +3642,8 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
         df_growth_all = load_object("%s/tmp/growth_measurements_all_timepoints.py"%outdir)
 
         merge_fields = ["plate_batch", "plate", "row", "column"]
-        extra_fields = ["idx_correct_rel_estimates", "replicateID", "nAUC"]
+        extra_fields = ["replicateID", "nAUC", field_type_spot]
+
         df_growth = df_growth_all.merge(df_fitness[merge_fields + extra_fields].drop_duplicates(), on=merge_fields, validate="many_to_one", how="left")
         df_growth = df_growth[(df_growth.strain==strain) & ((df_growth.drug==drug) | (df_growth.concentration==0))]
         for f in extra_fields: check_no_nans_series(df_growth[f])
@@ -3673,7 +3687,7 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
             # get df
             df_g = df_growth[df_growth.concentration==concentration]
             spot_to_color = {spot : repID_to_color[repID] for spot,repID in df_g[["spot & nAUC", "replicateID"]].drop_duplicates().values}
-            df_g["type spot"] = df_g.idx_correct_rel_estimates.map({True:"used", False:"discarded"}); check_no_nans_series(df_g["type spot"])
+            df_g["type spot"] = df_g[field_type_spot].map({True:"used", False:"discarded"}); check_no_nans_series(df_g["type spot"])
 
             # init figure to mimic the ones of the images
             dpi = 100
@@ -3757,6 +3771,163 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
         merged_image.save(filename_tmp)
         os.rename(filename_tmp, filename)
 
+
+
+def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name):
+
+    """Plots the heatmap for one fitness estimate, all drugs"""
+
+    # skip
+    if not file_is_empty(filename): return
+
+    # set parms
+    matplotlib.use('Agg')
+    matplotlib.rcParams['pdf.fonttype'] = 42
+    matplotlib.rcParams['ps.fonttype'] = 42
+
+    # get the number of strains and colors
+    nstrains = len(all_strains)
+
+    # check that there is only 1 concentration per drug
+    for d in sorted(set(df_fit.drug)):
+        nconcs_drug = len(set(df_fit[df_fit.drug==d].concentration))
+        if nconcs_drug!=1: raise ValueError("For drug=%s there are %i concentrations. This is not consistent with the provided input. For instance, if you want to analyze multiple concentrations for one drug there should be some concentration==0."%(d, nconcs_drug))
+
+    # define a df with the median and mad across replicates
+    if len(df_fit[["drug", "strain", "row", "column"]].drop_duplicates())!=len(df_fit): raise ValueError("df_fit should be unique")
+
+    def get_r_fit_per_strain_one_drug_and_strain(df): 
+        mad_fe = scipy.stats.median_absolute_deviation(df[fitness_estimate])
+        median_fe = np.median(df[fitness_estimate])
+        upper_bound_median = median_fe + mad_fe
+        lower_bound_median = max([0, median_fe-mad_fe])
+
+        return pd.Series({"drug":df.iloc[0].drug, "strain":df.iloc[0].strain, "median %s"%fitness_estimate : median_fe, "lower_bound_median":lower_bound_median, "upper_bound_median":upper_bound_median, "# replicates":len(df)})
+
+    df_fit_per_strain = df_fit[["drug", "strain", "row", "column", fitness_estimate]].groupby(["drug", "strain"]).apply(get_r_fit_per_strain_one_drug_and_strain).reset_index(drop=True)
+
+    # map nans to 0
+    def get_nan_to_0(x):
+        if pd.isna(x): return 0
+        else: return x
+
+    # get square df
+    fontsize_all = 16
+    sorted_drugs = sorted(set(df_fit_per_strain.drug))
+    df_plot = df_fit_per_strain.pivot(index="strain", columns="drug", values="median %s"%fitness_estimate)[sorted_drugs].applymap(get_nan_to_0)
+
+    # define the annot df to flag weird concentrations
+    def get_annot_for_n_reps(x):
+        if pd.isna(x): return "X"
+        elif x==1: return "1"
+        elif (type(x)==int or int(x)==x) and x>1: return ""
+        else: raise ValueError("invalid x: %s"%x)
+
+    df_annot = df_fit_per_strain.pivot(index="strain", columns="drug", values="# replicates").loc[df_plot.index, df_plot.columns].applymap(get_annot_for_n_reps)
+
+    # get clustermap
+    max_val = max(df_fit_per_strain.upper_bound_median)
+    cmap_name = "Greens" # rocket_r
+    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap=cmap_name, linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1) # 
+
+    # map the value to color
+    all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
+    val_to_color = get_value_to_color(all_vals, palette=cmap_name, n=len(all_vals), type_color="hex", center=None)[0]
+
+    # get the ordered ytick labels as in g
+    ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+    if set(ordered_strains)!=set(df_plot.index): raise ValueError("The yticklabels should include all strains")
+
+    # add the MAD for strains with >1 replicate
+    for Id, drug in enumerate(sorted_drugs):
+        for Is, strain in enumerate(ordered_strains):
+
+            # get row of df_fit_per_strain
+            df = df_fit_per_strain[(df_fit_per_strain.drug==drug) & (df_fit_per_strain.strain==strain)]
+            if len(df)==0: continue
+            if len(df)!=1: raise ValueError("df should be 1")
+            r = df.iloc[0]
+            if r["# replicates"]<2: continue
+
+            for Iv, val in enumerate([r.lower_bound_median, r.upper_bound_median]): g.ax_heatmap.scatter([Id+0.33*(1+Iv)], [Is+0.5], edgecolor="gray", facecolor=val_to_color[val],  s=25, linewidth=.4)
+
+    # change positions
+    hm_height_multiplier = 0.04
+    hm_width_multiplier = 0.04
+    distance_btw_boxes = 0.01
+    rd_width = 0.08
+    cbar_width = 0.04
+
+    hm_height = len(df_plot)*hm_height_multiplier
+    hm_width = len(df_plot.columns)*hm_width_multiplier
+
+    hm_pos = g.ax_heatmap.get_position()
+    cb_pos = g.ax_cbar.get_position()
+    hm_y0 = cb_pos.y1 - hm_height
+    #hm_y0 = (hm_pos.y0+hm_pos.height)-hm_height
+    g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
+
+    rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
+    g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
+
+    cbar_height = hm_height_multiplier*4
+    g.ax_cbar.set_position([rd_pos.x0 - rd_width - distance_btw_boxes*8, rd_pos.y0 + hm_pos.height - cbar_height,cbar_width, cbar_height])
+
+    # labels
+    g.ax_heatmap.set_xticklabels(sorted_drugs, rotation=90, fontsize=fontsize_all)
+    g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all, rotation=0)
+    g.ax_heatmap.set_xlabel("condition", fontsize=fontsize_all)
+    g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
+    g.ax_cbar.set_yticklabels([y.get_text() for y in g.ax_cbar.get_yticklabels()], fontsize=fontsize_all)
+    g.ax_cbar.set_ylabel(fitness_estimate, fontsize=fontsize_all)
+
+    # add title
+    g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
+
+    # add description at the bottom
+    description = "drug vs fitness (estimated by '%s')\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(fitness_estimate)
+
+    description += get_fe_description(fitness_estimate, 'only_not_bad_spots', min_nAUC_to_beConsideredGrowing)
+    g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
+
+    # save
+    filename_tmp = "%s.tmp.pdf"%filename
+    g.savefig(filename_tmp,  bbox_inches="tight")
+    #plt.close(g)
+    os.rename(filename_tmp, filename)
+
+
+def plot_heatmaps_raw_fitness_all_drugs(df_fitness_measurements, plots_dir_all, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name):
+
+    """Generates one heatmap for each fitness estimate in which there is, for each drug, the raw fitness estimates."""
+
+
+    # make outdir
+    make_folder(plots_dir_all)
+
+    # filter dfs
+    df_fitness_measurements = cp.deepcopy(df_fitness_measurements[df_fitness_measurements.not_bad_spot])
+
+    print_with_runtime("Getting heatmaps with raw fitness estimates...")
+
+    # define the drugs and strains
+    all_drugs = sorted(set(df_fitness_measurements[df_fitness_measurements.concentration!=0].drug))
+    all_strains = sorted(set(df_fitness_measurements.strain))
+
+    # one plot for each estimator
+    for fitness_estimate in fitness_estimates:
+
+        # get plot
+        filename = "%s/raw_%s_across_drugs_heatmap.pdf"%(plots_dir_all, fitness_estimate)
+        if file_is_empty(filename):
+
+            # checks
+            check_no_nans_series(df_fitness_measurements[fitness_estimate])
+            df_fit = cp.deepcopy(df_fitness_measurements)
+
+            # get plot
+            plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name)
+
 def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, min_nAUC_to_beConsideredGrowing, hours_experiment):
 
     """
@@ -3826,11 +3997,17 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
     generate_simplified_fitness_table(df_fitness_measurements, ["nAUC"], "%s/fitness_measurements_simple.csv"%extended_outdir, experiment_name)
     files_main_output.append("fitness_measurements_simple.xlsx")
 
+    # map each drug to the number of concentrations
+    drug_to_nconcs = df_fitness_measurements[df_fitness_measurements.concentration!=0][["drug", "concentration"]].drop_duplicates().groupby("drug").apply(len)
+
+    # define all fitness estimates
+    fitness_estimates  = ["K", "r", "nr", "nr_t", "maxslp", "maxslp_t", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2", "nSTP"]
+
     ########################################
 
-    if measure_susceptibility is True:
+    #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
 
-        #### INTEGRATE THE PLATE SETS TO MEASURE SUSCEPTIBILITY ####
+    if measure_susceptibility is True:
 
         # run the AST calculations based on all plates
         print_with_runtime("Getting the relative fitness and susceptibility measurements. Considering spots with a  nAUC<%s to be not growing."%(min_nAUC_to_beConsideredGrowing))
@@ -3853,9 +4030,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         """
 
         # init variables
-        fitness_estimates  = ["K", "r", "nr", "nr_t", "maxslp", "maxslp_t", "MDP", "MDR", "MDRMDP", "DT", "AUC", "DT_h", "nAUC", "DT_h_goodR2", "nSTP"]
         fitness_estimates_susc = ["K", "r", "nr", "maxslp", "MDP", "MDR", "MDRMDP", "AUC", "nAUC", "nSTP"] # these are estimates that are correlated to growth rate
-
 
         # get the fitness df with relative values (for each drug, the fitness relative to the concentration==0), and save these measurements
         df_fitness_measurements = get_fitness_df_with_relativeFitnessEstimates(df_fitness_measurements, fitness_estimates)
@@ -3873,8 +4048,6 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         files_main_output.append("relative_fitness_measurements_simple.xlsx")
 
         # measure susceptibility
-        drug_to_nconcs = df_fitness_measurements[df_fitness_measurements.concentration!=0][["drug", "concentration"]].drop_duplicates().groupby("drug").apply(len)
-  
         if any(drug_to_nconcs>=2):
 
             # get the susceptibility df
@@ -3892,21 +4065,38 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         else: print_with_runtime("All drugs have <2 non-0 concentrations, so that the susceptibility analysis is skipped.")
     
-        ############################################################
+    else: 
+        print_with_runtime("WARNING: You did not provide concentration==0, so that the susceptibility and relative fitness measurements are not generated.")
+        save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%extended_outdir)
 
-        ######### MAKE PLOTS ##########
+    ############################################################
 
-        # make plots of each strain with the images and plots
-        all_strains = sorted(set(df_fitness_measurements.strain))
-        dir_growth_curves_and_images = "%s/growth_curves_and_images"%extended_outdir; make_folder(dir_growth_curves_and_images)
+    ###### MAKE PLOTS THAT ARE GENERAL TO ALL RUNS ######
 
-        for drug in drug_to_nconcs.keys():
-            print("Getting plots with growth curves and images for drug %s..."%drug)
+    # add general fields
+    df_fitness_measurements["not_bad_spot"] = ~df_fitness_measurements.bad_spot
 
-            outdir_plots = "%s/%s"%(dir_growth_curves_and_images, drug); make_folder(outdir_plots)
-            df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
-            inputs_fn_plots_strain = [(s, drug, cp.deepcopy(df_fit[df_fit.strain==s]), outdir, outdir_plots, hours_experiment) for I,s in enumerate(all_strains)]
-            run_function_in_parallel(inputs_fn_plots_strain, generate_plot_growth_curves_and_images_one_strain_and_drug)
+    # make plots of each strain with the images and plots
+    all_strains = sorted(set(df_fitness_measurements.strain))
+    dir_growth_curves_and_images = "%s/growth_curves_and_images"%extended_outdir; make_folder(dir_growth_curves_and_images)
+
+    for drug in drug_to_nconcs.keys():
+        print("Getting plots with growth curves and images for drug %s..."%drug)
+
+        outdir_plots = "%s/%s"%(dir_growth_curves_and_images, drug); make_folder(outdir_plots)
+        df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
+        inputs_fn_plots_strain = [(s, drug, cp.deepcopy(df_fit[df_fit.strain==s]), outdir, outdir_plots, hours_experiment, {True:"idx_correct_rel_estimates", False:"not_bad_spot"}[measure_susceptibility]) for I,s in enumerate(all_strains)]
+        run_function_in_parallel(inputs_fn_plots_strain, generate_plot_growth_curves_and_images_one_strain_and_drug)
+
+    #####################################################
+
+    ######### MAKE PLOTS ONLY RELATED TO SUSCEPTIBILITY ##########
+
+    if measure_susceptibility is True:
+
+        # make heatmap of concentration-vs-fitness
+        outdir_heatmaps_extended = "%s/drug_vs_fitness_heatmaps"%extended_outdir
+        plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
 
         # make lineplots of concentration-vs-fitness
         outdir_drug_vs_fitness_extended = "%s/drug_vs_fitness_lines"%extended_outdir
@@ -3919,21 +4109,20 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         # make the heatmap of the susceptibility measures        
         if any(drug_to_nconcs>=2): plot_heatmap_susceptibility(susceptibility_df, "%s/susceptibility_heatmaps"%extended_outdir, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing)
 
-        # make heatmap of concentration-vs-fitness
-        outdir_heatmaps_extended = "%s/drug_vs_fitness_heatmaps"%extended_outdir
-        plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, outdir_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
+    else:
 
+        # make heatmap of drug vs fitness, one for each drug
+        outdir_raw_fitness_heatmaps_extended = "%s/drug_vs_raw_fitness_heatmaps"%extended_outdir
+        plot_heatmaps_raw_fitness_all_drugs(df_fitness_measurements, outdir_raw_fitness_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
 
-        ###############################
+        files_main_output.append("drug_vs_raw_fitness_heatmaps/raw_nAUC_across_drugs_heatmap.pdf")
 
-    else: 
-        print_with_runtime("WARNING: You did not provide concentration==0, so that the susceptibility and relative fitness measurements are not generated.")
-        save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%extended_outdir)
+    ##############################################################
 
     #### RESTRUCTURE ####
 
     # main files
-    for f in files_main_output: os.rename("%s/%s"%(extended_outdir, f), "%s/%s"%(outdir, f))
+    for f in files_main_output: os.rename("%s/%s"%(extended_outdir, f), "%s/%s"%(outdir, get_file(f)))
 
     # plots
     summary_plots_dir = "%s/summary_plots"%outdir; make_folder(summary_plots_dir)
