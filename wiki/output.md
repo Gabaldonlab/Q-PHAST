@@ -1,4 +1,4 @@
-# Interpreting the output
+## Interpreting the output
 
 The module 'analyze_images' generates all the fitness and drug susceptibility calculations. It follows these steps:
 

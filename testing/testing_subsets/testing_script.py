@@ -36,8 +36,8 @@ running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.sys
 
 # test each of the samples that should work
 print("Testing four different types of data...")
-#for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
-for d in ["Stress_plates_subset"]:
+for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
+#for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset"]:
 
     print("testing %s..."%d)
 
@@ -68,7 +68,7 @@ for d in ["Stress_plates_subset"]:
         output_dir = "%s%soutput_Q-PHAST"%(test_dir, os_sep)
         input_dir = input_dir_source
 
-    #fun.delete_folder(output_dir)
+    # fun.delete_folder(output_dir)
     finish_file = "%s%sfinished.txt"%(output_dir, os_sep)
 
     # run the python script
@@ -80,8 +80,6 @@ for d in ["Stress_plates_subset"]:
         fun.run_cmd(cmd)     
         open(finish_file, "w").write("finished")
 
-
-dakgadkgd
 
 # test different plate layouts errors
 print("\n\nTesting different plate layouts...")

@@ -21,7 +21,7 @@ except:
     # tk debug
     try: import tkinter as tk
     except:
-        print("ERROR: the library 'tkinter' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
+        print("ERROR: the library 'tk' is not installed. You can install it with Anaconda Navigator, as explained in https://github.com/Gabaldonlab/Q-PHAST.")
         sys.exit(1)
 
     # PIL debug

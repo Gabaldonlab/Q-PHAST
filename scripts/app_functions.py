@@ -2168,18 +2168,19 @@ def plot_growth_at_different_drugs(df_fitness_measurements, plots_dir_all, fitne
 
 
                 # run fn
-                plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name)
+                #plot_growth_at_different_drugs_one_fitness_estimate_and_drug(df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name)
 
                 # load inputs_fn
-                # inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
+                inputs_fn.append((df_fit, filename, all_strains, fitness_estimate, drug, type_data, min_nAUC_to_beConsideredGrowing, strain_to_repID_to_color, experiment_name))
 
-    """
     # run in parallel
     if len(inputs_fn)>0: 
 
-        #run_function_in_parallel(inputs_fn, plot_growth_at_different_drugs_one_fitness_estimate_and_drug, ntries=2)
+        # parallel
+        #for inputs_fn_chunk in chunks(inputs_fn, multiproc.cpu_count()): run_function_in_parallel(inputs_fn_chunk, plot_growth_at_different_drugs_one_fitness_estimate_and_drug, ntries=2)
+        
+        # not parallel
         for x in inputs_fn: plot_growth_at_different_drugs_one_fitness_estimate_and_drug(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], x[8])
-    """
 
 def run_function_in_parallel(inputs_fn, parallel_fun, ntries=1):
 
