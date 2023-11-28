@@ -1,6 +1,6 @@
 ## Fitness and susceptibility measurements
 
-Q-PHAST calculates different fitness and susceptibility measurements. First, our pipeline uses the time-vs-growth curve to infer fitness for each sample in each drug concentration. There are two types of fitness estimates:
+Q-PHAST calculates different fitness and susceptibility measurements. First, our pipeline uses the time-vs-growth curve to infer fitness for each sample in each drug concentration (each spot in the experiment). Note that for one strain we may have multple samples (technical replicates). There are two types of fitness estimates:
 
   - Model-based fitness estimates: estimated by fitting a [generalised logistic model](http://en.wikipedia.org/wiki/Generalised_logistic_function#Generalised_logistic_differential_equation) to the time-vs-growth curve. The model parameters give us different fitness estimates. These estimates can be useful if we have some spots that did not reach stationary phase (to predict maximum growth, for example) or we have mixed samples with different growth times. These don't work well if we have slow-growing spots or non-logistic curves (which may happen because there is cell death after reaching stationary phase). `K`, `r`, `g`, `v`, `MDR`, `MDP`, `DT`, `AUC`, `MDRMDP`, `rsquare` (see below) are related to such model fitting.
 
@@ -28,7 +28,7 @@ Once all fitness estimates are measured, Q-PHAST calculates the relative fitness
 
 Finally, for drugs with at least two non-0 concentrations, Q-PHAST measures the following susceptibility estimates (considering either `K_rel`, `r_rel`, `nr_rel`, `maxslp_rel`, `MDP_rel`, `MDR_rel`, `MDRMDP_rel`, `AUC_rel`, `nAUC_rel` or `nSTP_rel`):
 
-- `MIC`:
+- `MIC`: The Minimum Inhibitory Concentration 
 
 - `rAUC`:
 
