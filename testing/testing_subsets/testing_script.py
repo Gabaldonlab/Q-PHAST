@@ -37,7 +37,7 @@ running_os = {"Darwin":"mac", "Linux":"linux", "Windows":"windows"}[platform.sys
 # test each of the samples that should work
 print("Testing four different types of data...")
 for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset", "Stress_plates_subset"]:
-#for d in ["AST_48h_subset", "Classic_spottest_subset", "Fitness_only_subset"]:
+#for d in ["AST_48h_subset"]:
 
     print("testing %s..."%d)
 

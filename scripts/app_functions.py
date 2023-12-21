@@ -1376,7 +1376,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                 continue
 
             # define the log2_concentration
-            pseudocount_log2_concentration = sorted_concentrations[0]/2
+            pseudocount_log2_concentration = sorted_concentrations[1]/2
             fitness_df_d["log2_concentration"] = np.log2(fitness_df_d.concentration + pseudocount_log2_concentration)
 
             # map each drug to the expected concentrations
@@ -1384,6 +1384,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
 
             sorted_log2_concentrations = [np.log2(c + pseudocount_log2_concentration) for c in sorted_concentrations]
             concentrations_dict_log2 = {"max_conc":max(sorted_log2_concentrations), "zero_conc":sorted_log2_concentrations[0], "first_conc":sorted_log2_concentrations[1], "conc_to_previous_conc":{c:sorted_log2_concentrations[I-1] for I,c in enumerate(sorted_log2_concentrations) if I>0}}
+
 
             # filter out unsuited spots for relative fitness purposes
             fitness_df_d = fitness_df_d[fitness_df_d.idx_correct_rel_estimates]
@@ -1515,7 +1516,10 @@ def get_row_simple_susceptibility_df_one_strain_and_drug(df):
     if len(df)!=len(set(df.replicateID)): raise ValueError("replicateIDs should be unique")
 
     # go through different fields
-    for field_name, field in [("MIC50", "MIC_50"), ("SMG-MIC50", "SMG_MIC_50"), ("rAUC", "rAUC_concentration")]:
+    for field_name, field in [("MIC50", "MIC_50"), ("SMG-MIC50", "SMG_MIC_50"), ("rAUC", "rAUC_concentration"), ("rAUC_log2", "rAUC_log2_concentration"), ("MIC50_log10", "log10_MIC_50")]:
+
+        # debug
+        if field not in df.keys(): continue
 
         # get the no nan vals
         all_vals = sorted(df[(~pd.isna(df[field]))][field])
@@ -1667,7 +1671,7 @@ def get_annotationColor_on_bgcolor(bgcolor, threshold_gray=0.4):
     if gray<threshold_gray: return "white"
     else: return "black"
 
-def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estimates, experiment_name, min_nAUC_to_beConsideredGrowing):
+def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estimates, experiment_name, min_nAUC_to_beConsideredGrowing, type_measurements_susc):
 
     """Plots a heatmap with the susceptibility data for each fitness estimate and drug"""
 
@@ -1676,6 +1680,12 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
 
     # define the drugs
     all_drugs = sorted(set(susceptibility_df.drug))
+
+    # add fields to susceptibility_df
+    susceptibility_df = cp.deepcopy(susceptibility_df)
+    if any(susceptibility_df.MIC_50==0): raise ValueError("MIC_50 can't be 0")
+    susceptibility_df["log10_MIC_50"] = np.log10(susceptibility_df.MIC_50)
+    if any(pd.isna(susceptibility_df["log10_MIC_50"])!=pd.isna(susceptibility_df["MIC_50"])): raise ValueError("The MICs are not NaN in a consistent way")
 
     # make one plot for each drug and fitness_estimate
     for drug in all_drugs:
@@ -1687,134 +1697,156 @@ def plot_heatmap_susceptibility(susceptibility_df, plots_dir_all, fitness_estima
             # define filename
             plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
             filename = "%s/%s_susceptibility_heatmap_by_%s.pdf"%(plots_dir, drug, fitness_estimate.replace("_rel", ""))
+            filename_no_clustering = "%s/%s_susceptibility_heatmap_by_%s.no_clustering.pdf"%(plots_dir, drug, fitness_estimate.replace("_rel", ""))
 
-            if file_is_empty(filename):
+            for file, row_cluster in [(filename, True), (filename_no_clustering, False)]:
 
-                # get the simplified susceptibility_df, with one strain for eacg
-                simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate==fitness_estimate) & (susceptibility_df.drug==drug)].groupby(["strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
+                if file_is_empty(file):
 
-                # make clustermap
-                df_plot = simple_susceptibility_df[["median_rAUC", "median_MIC50", "median_SMG-MIC50", "strain"]].set_index("strain")
-                df_plot_nonans = df_plot.applymap(convert_nans_to_0s)
+                    # get dataframe for this fe and drug
+                    susceptibility_df_d_fe = susceptibility_df[(susceptibility_df.fitness_estimate==fitness_estimate) & (susceptibility_df.drug==drug)]
 
-                # create the df to plot that is compatible with zscore
-                df_plot_nonans_zscore = pd.DataFrame(index=df_plot_nonans.index)
-                for col in df_plot_nonans.columns:
-                    if len(df_plot_nonans[col].unique()) == 1: df_plot_nonans_zscore[col] = 0
-                    else: df_plot_nonans_zscore[col] = scipy.stats.zscore(df_plot_nonans[col])
+                    # get the simplified susceptibility_df, with one strain for eacg
+                    simple_susceptibility_df = susceptibility_df_d_fe.groupby(["strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
 
-                # init clustermap with the z-score of the three values, so that the strains are clustered based on that
-                g = sns.clustermap(df_plot_nonans_zscore, row_cluster=True, col_cluster=False, linecolor="gray", linewidth=0, yticklabels=1)
-                ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
-                if set(ordered_strains)!=set(df_plot_nonans_zscore.index): raise ValueError("The yticklabels should include all strains")
+                    # define the fields based on type_measurements_susc
+                    if type_measurements_susc=="raw":
+                        susceptibility_fileds = ["median_rAUC", "median_MIC50", "median_SMG-MIC50"]
+                        estimate_to_real_estimate = {"rAUC":"rAUC", "MIC50":"MIC50", "SMG-MIC50":"SMG-MIC50"}
 
-                # change positions
-                hm_height_multiplier = 0.04
-                hm_width_multiplier = 0.04
-                distance_btw_boxes = 0.01
-                rd_width = 0.08
-                cbar_width = 0.04
+                    elif type_measurements_susc=="log":
+                        susceptibility_fileds = ["median_rAUC_log2", "median_MIC50_log10", "median_SMG-MIC50"] # SMG is in linear scale
+                        estimate_to_real_estimate = {"rAUC":"rAUC_log2", "MIC50":"MIC50_log10", "SMG-MIC50":"SMG-MIC50"}
 
-                hm_height = len(df_plot)*hm_height_multiplier
-                hm_width = len(df_plot.columns)*hm_width_multiplier
+                    # make clustermap
+                    df_plot = simple_susceptibility_df[susceptibility_fileds +  ["strain"]].set_index("strain")
 
-                hm_pos = g.ax_heatmap.get_position()
-                cb_pos = g.ax_cbar.get_position()
-                hm_y0 = cb_pos.y1 - hm_height
-                g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
+                    # change the order
+                    if row_cluster is False: df_plot = df_plot.loc[sorted(df_plot.index)]
 
-                rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
-                g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
+                    # get as the no nans df
+                    df_plot_nonans = df_plot.applymap(convert_nans_to_0s)
 
-                # remove colorbar
-                g.ax_cbar.remove()
-        
-                # change axis
-                fontsize_all = 16
-                max_conc = get_clean_float_value(simple_susceptibility_df.max_concentration.iloc[0])
+                    # create the df to plot that is compatible with zscore
+                    df_plot_nonans_zscore = pd.DataFrame(index=df_plot_nonans.index)
+                    for col in df_plot_nonans.columns:
+                        if len(df_plot_nonans[col].unique()) == 1: df_plot_nonans_zscore[col] = 0
+                        else: df_plot_nonans_zscore[col] = scipy.stats.zscore(df_plot_nonans[col])
+
+                    # init clustermap with the z-score of the three values, so that the strains are clustered based on that
+                    g = sns.clustermap(df_plot_nonans_zscore, row_cluster=row_cluster, col_cluster=False, linecolor="gray", linewidth=0, yticklabels=1)
+                    ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
+                    if set(ordered_strains)!=set(df_plot_nonans_zscore.index): raise ValueError("The yticklabels should include all strains")
+
+                    # change positions
+                    hm_height_multiplier = 0.04
+                    hm_width_multiplier = 0.04
+                    distance_btw_boxes = 0.01
+                    rd_width = 0.08
+                    cbar_width = 0.04
+
+                    hm_height = len(df_plot)*hm_height_multiplier
+                    hm_width = len(df_plot.columns)*hm_width_multiplier
+
+                    hm_pos = g.ax_heatmap.get_position()
+                    cb_pos = g.ax_cbar.get_position()
+                    hm_y0 = cb_pos.y1 - hm_height
+                    g.ax_heatmap.set_position([hm_pos.x0, hm_y0, hm_width, hm_height]); hm_pos = g.ax_heatmap.get_position()
+
+                    rd_x0 = hm_pos.x0 - rd_width - distance_btw_boxes
+                    g.ax_row_dendrogram.set_position([rd_x0, hm_pos.y0, rd_width, hm_pos.height]); rd_pos = g.ax_row_dendrogram.get_position()
+
+                    # remove colorbar
+                    g.ax_cbar.remove()
+            
+                    # change axis
+                    fontsize_all = 16
+                    max_conc = get_clean_float_value(simple_susceptibility_df.max_concentration.iloc[0])
+
+                    estimate_to_label = {"median_rAUC":"rAUC$_{%s}$"%max_conc, "median_MIC50":"MIC$_{50}$", "median_SMG-MIC50":"SMG$_{50}$", "median_rAUC_log2":"rAUC_log2$_{%s}$"%max_conc, "median_MIC50_log10":"log(MIC$_{50}$)"}
+
+                    g.ax_heatmap.set_xticklabels([estimate_to_label[e] for e in df_plot.columns], rotation=90, fontsize=fontsize_all)
+                    g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all, rotation=0)
+                    g.ax_heatmap.set_xlabel("")
+                    g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
+                    g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
+
+                    # create the axes for the heatmaps
+                    cbar_w = hm_height_multiplier*0.9
+                    cbar_h = hm_height_multiplier*3
+                    
+                    x0_cax = rd_pos.x0-distance_btw_boxes-3*cbar_w
+                    y1_rd = rd_pos.y0+rd_pos.height
+
+                    rAUC_cax = g.fig.add_axes([x0_cax, y1_rd - cbar_h, cbar_w, cbar_h])
+                    MIC_cax = g.fig.add_axes([x0_cax, y1_rd - 2*cbar_h - (distance_btw_boxes)*6, cbar_w, cbar_h])
+                    SMG_cax = g.fig.add_axes([x0_cax, y1_rd - 3*cbar_h - (2*distance_btw_boxes)*6, cbar_w, cbar_h])
+
+                    # change things for each field
+                    for Ic, (estimate, palette, cax) in enumerate([("rAUC", "gray_r", rAUC_cax), ("MIC50", "Blues", MIC_cax), ("SMG-MIC50","Reds", SMG_cax)]):
+
+                        # define the real estimate, based on the type of plot
+                        real_estimate = estimate_to_real_estimate[estimate]
+
+                        # get the cmap
+                        sorted_vals = sorted(set(df_plot_nonans["median_%s"%real_estimate]).union({0}))
+                        val_to_color = get_value_to_color(sorted_vals, palette=palette, n=len(sorted_vals), type_color="hex", center=None)[0]
+
+                        # go through each strain
+                        for Ir, strain in enumerate(ordered_strains):
+
+                            # add the rectangle for the median
+                            val = df_plot.loc[strain, "median_%s"%real_estimate]
+                            if pd.isna(val): color = "white"
+                            else: color = val_to_color[val]
+
+                            rect = patches.Rectangle((Ic, Ir), 1, 1, linewidth=.5, edgecolor='gray', facecolor=color)
+                            g.ax_heatmap.add_patch(rect)
+
+                            # add things to each heatmap
+                            df = simple_susceptibility_df[(simple_susceptibility_df.strain==strain)]
+                            if len(df)==0: continue
+                            if len(df)!=1: raise ValueError("df should be 1")
+                            r = df.iloc[0]
+
+                            # add text for few replicates
+                            if r["replicates_%s"%real_estimate] in {0, 1}: g.ax_heatmap.text(Ic+0.5, Ir+0.5, {0:"X", 1:"1"}[r["replicates_%s"%real_estimate]], color=get_annotationColor_on_bgcolor(color), fontsize=fontsize_all, horizontalalignment="center", verticalalignment="center")
+
+                            # for more replicates, add circles for MAD
+                            else:
+                                lower_bound_median = max([0, r["median_%s"%real_estimate] - r["mad_%s"%real_estimate]])
+                                upper_bound_median = r["median_%s"%real_estimate] + r["mad_%s"%real_estimate]
+                                for Iv, val in enumerate([lower_bound_median, upper_bound_median]): 
+
+                                    g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Ir+0.5], edgecolor="gray", facecolor=val_to_color[find_nearest(np.array(sorted(set(val_to_color.keys()))), val)],  s=25, linewidth=.4, zorder=2)
+
+                        # add colorbar
+                        ticks_vals = list(np.linspace(0, max(sorted_vals), 3))
+                        ticks_list = [get_clean_float_value(y) for y in ticks_vals]
+                        cax.set_yticks(ticks_vals)
+                        cax.set_yticklabels(ticks_list)
+
+                        cmap = plt.get_cmap(palette)
+                        norm = plt.Normalize(vmin=0, vmax=max(sorted_vals))
+                        cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, ticks=ticks_vals)
+
+                        cb.ax.tick_params(labelsize=fontsize_all-4)
+                        cax.set_title(estimate_to_label["median_%s"%real_estimate], fontsize=fontsize_all, pad=10, loc="center")
+                        cb.outline.set_visible(False)
 
 
-                estimate_to_label = {"median_rAUC":"rAUC$_{%s}$"%max_conc, "median_MIC50":"MIC$_{50}$", "median_SMG-MIC50":"SMG$_{50}$"}
-                g.ax_heatmap.set_xticklabels([estimate_to_label[e] for e in df_plot.columns], rotation=90, fontsize=fontsize_all)
-                g.ax_heatmap.set_yticklabels(ordered_strains, fontsize=fontsize_all, rotation=0)
-                g.ax_heatmap.set_xlabel("")
-                g.ax_heatmap.set_ylabel("strain", fontsize=fontsize_all)
-                g.ax_heatmap.set_title(experiment_name+"\n", fontsize=fontsize_all)
+                    # add description at the bottom
+                    description = "rAUC (max [%s]=%s), 50%s Minimum Inhibitory Concentration (MIC)\nand Supra-MIC Growth (SMG) based on fitness estimate '%s'\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, max_conc, "%", fitness_estimate.replace("_rel", ""))
 
-                # create the axes for the heatmaps
-                cbar_w = hm_height_multiplier*0.9
-                cbar_h = hm_height_multiplier*3
-                
-                x0_cax = rd_pos.x0-distance_btw_boxes-3*cbar_w
-                y1_rd = rd_pos.y0+rd_pos.height
+                    description += get_fe_description(fitness_estimate.replace("_rel", ""), 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
+                    g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
 
-                rAUC_cax = g.fig.add_axes([x0_cax, y1_rd - cbar_h, cbar_w, cbar_h])
-                MIC_cax = g.fig.add_axes([x0_cax, y1_rd - 2*cbar_h - (distance_btw_boxes)*6, cbar_w, cbar_h])
-                SMG_cax = g.fig.add_axes([x0_cax, y1_rd - 3*cbar_h - (2*distance_btw_boxes)*6, cbar_w, cbar_h])
-
-                # change things for each field
-                for Ic, (estimate, palette, cax) in enumerate([("rAUC", "gray_r", rAUC_cax), ("MIC50", "Blues", MIC_cax), ("SMG-MIC50","Reds", SMG_cax)]):
-
-                    # get the cmap
-                    sorted_vals = sorted(set(df_plot_nonans["median_%s"%estimate]).union({0}))
-                    val_to_color = get_value_to_color(sorted_vals, palette=palette, n=len(sorted_vals), type_color="hex", center=None)[0]
-
-                    # go through each strain
-                    for Ir, strain in enumerate(ordered_strains):
-
-                        # add the rectangle for the median
-                        val = df_plot.loc[strain, "median_%s"%estimate]
-                        if pd.isna(val): color = "white"
-                        else: color = val_to_color[val]
-
-                        rect = patches.Rectangle((Ic, Ir), 1, 1, linewidth=.5, edgecolor='gray', facecolor=color)
-                        g.ax_heatmap.add_patch(rect)
-
-                        # add things to each heatmap
-                        df = simple_susceptibility_df[(simple_susceptibility_df.strain==strain)]
-                        if len(df)==0: continue
-                        if len(df)!=1: raise ValueError("df should be 1")
-                        r = df.iloc[0]
-
-                        # add text for few replicates
-                        if r["replicates_%s"%estimate] in {0, 1}: g.ax_heatmap.text(Ic+0.5, Ir+0.5, {0:"X", 1:"1"}[r["replicates_%s"%estimate]], color=get_annotationColor_on_bgcolor(color), fontsize=fontsize_all, horizontalalignment="center", verticalalignment="center")
-
-                        # for more replicates, add circles for MAD
-                        else:
-                            lower_bound_median = max([0, r["median_%s"%estimate] - r["mad_%s"%estimate]])
-                            upper_bound_median = r["median_%s"%estimate] + r["mad_%s"%estimate]
-                            for Iv, val in enumerate([lower_bound_median, upper_bound_median]): 
-
-                                g.ax_heatmap.scatter([Ic+0.33*(1+Iv)], [Ir+0.5], edgecolor="gray", facecolor=val_to_color[find_nearest(np.array(sorted(set(val_to_color.keys()))), val)],  s=25, linewidth=.4, zorder=2)
-
-                    # add colorbar
-                    ticks_vals = list(np.linspace(0, max(sorted_vals), 3))
-                    ticks_list = [get_clean_float_value(y) for y in ticks_vals]
-                    cax.set_yticks(ticks_vals)
-                    cax.set_yticklabels(ticks_list)
-
-                    cmap = plt.get_cmap(palette)
-                    norm = plt.Normalize(vmin=0, vmax=max(sorted_vals))
-                    cb = plt.colorbar(plt.cm.ScalarMappable(norm=norm, cmap=cmap), cax=cax, ticks=ticks_vals)
-
-                    cb.ax.tick_params(labelsize=fontsize_all-4)
-                    cax.set_title(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, pad=10, loc="center")
-                    cb.outline.set_visible(False)
-
-                    #cb.set_label(estimate_to_label["median_%s"%estimate], fontsize=fontsize_all, rotation=270, labelpad=-1)
+                    filename_tmp = "%s.tmp.pdf"%file
+                    g.savefig(filename_tmp,  format='pdf', bbox_inches="tight")
+                    os.rename(filename_tmp, file)
 
 
-                # add description at the bottom
-                description = "rAUC (max [%s]=%s), 50%s Minimum Inhibitory Concentration (MIC)\nand Supra-MIC Growth (SMG) based on fitness estimate '%s'\nSquares: Median; Circles: MAD; 1: One replicate; X: Not available\n\n"%(drug, max_conc, "%", fitness_estimate.replace("_rel", ""))
-
-                description += get_fe_description(fitness_estimate.replace("_rel", ""), 'only_correct_spots', min_nAUC_to_beConsideredGrowing)
-                g.ax_heatmap.text(0, len(df_plot) + 3 + (len(description.split("\n"))*0.5), description, horizontalalignment='left', verticalalignment='bottom')
-
-                filename_tmp = "%s.tmp.pdf"%filename
-                g.savefig(filename_tmp,  format='pdf', bbox_inches="tight")
-                os.rename(filename_tmp, filename)
-
-def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name):
+def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name, cmap="rocket_r", row_cluster=True):
 
     """Plots the heatmap for one drug and fitness estimate"""
 
@@ -1852,6 +1884,9 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
     sorted_concentrations = sorted(set(df_fit_per_strain.concentration))
     df_plot = df_fit_per_strain.pivot(index="strain", columns="concentration", values="median %s"%fitness_estimate)[sorted_concentrations].applymap(get_nan_to_0)
 
+    # resort df if it is not sorted
+    if row_cluster is False: df_plot = df_plot.loc[sorted(df_plot.index)]
+
     # define the annot df to flag weird concentrations
     def get_annot_for_n_reps(x):
         if pd.isna(x): return "X"
@@ -1863,11 +1898,11 @@ def plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit,
 
     # get clustermap
     max_val = max(df_fit_per_strain.upper_bound_median)
-    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap="rocket_r", linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1)
+    g = sns.clustermap(df_plot, row_cluster=row_cluster, col_cluster=False, cmap=cmap, linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1)
 
     # map the value to color
     all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
-    val_to_color = get_value_to_color(all_vals, palette="rocket_r", n=len(all_vals), type_color="hex", center=None)[0]
+    val_to_color = get_value_to_color(all_vals, palette=cmap, n=len(all_vals), type_color="hex", center=None)[0]
 
     # get the ordered ytick labels as in g
     ordered_strains = [s.get_text() for s in g.ax_heatmap.get_yticklabels()]
@@ -1959,15 +1994,23 @@ def plot_heatmaps_concentration_vs_fitness(df_fitness_measurements, plots_dir_al
             # define filename
             plots_dir = "%s/%s"%(plots_dir_all, drug); make_folder(plots_dir)
             filename = "%s/[%s]_vs_%s_heatmap.pdf"%(plots_dir, drug, fitness_estimate)
+            filename_no_clustering = "%s/[%s]_vs_%s_heatmap.no_clustering.pdf"%(plots_dir, drug, fitness_estimate)
 
-            if file_is_empty(filename):
+            # define the colormap
+            if fitness_estimate.endswith("_rel"): cmap = "rocket_r"
+            else: cmap = "Greens"
 
-                # get dfs
-                df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)])
-                check_no_nans_series(df_fit[fitness_estimate])
+            # one plot for each type
+            for file, row_cluster in [(filename, True), (filename_no_clustering, False)]:
 
-                # get heatmap 
-                plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, filename, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name)
+                if file_is_empty(file):
+
+                    # get dfs
+                    df_fit = cp.deepcopy(df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)])
+                    check_no_nans_series(df_fit[fitness_estimate])
+
+                    # get heatmap 
+                    plot_heatmaps_concentration_vs_fitness_one_drug_and_fitness_estimate(df_fit, file, all_strains, fitness_estimate, drug, min_nAUC_to_beConsideredGrowing, experiment_name, cmap=cmap, row_cluster=row_cluster)
 
 def chunks(l, n):
     
@@ -3774,7 +3817,7 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
 
 
 
-def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name):
+def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name, row_cluster=True):
 
     """Plots the heatmap for one fitness estimate, all drugs"""
 
@@ -3817,6 +3860,9 @@ def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fit
     sorted_drugs = sorted(set(df_fit_per_strain.drug))
     df_plot = df_fit_per_strain.pivot(index="strain", columns="drug", values="median %s"%fitness_estimate)[sorted_drugs].applymap(get_nan_to_0)
 
+    # adjust clustering
+    if row_cluster is False: df_plot = df_plot.loc[sorted(df_plot.index)]
+
     # define the annot df to flag weird concentrations
     def get_annot_for_n_reps(x):
         if pd.isna(x): return "X"
@@ -3829,7 +3875,7 @@ def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fit
     # get clustermap
     max_val = max(df_fit_per_strain.upper_bound_median)
     cmap_name = "Greens" # rocket_r
-    g = sns.clustermap(df_plot, row_cluster=True, col_cluster=False, cmap=cmap_name, linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1) # 
+    g = sns.clustermap(df_plot, row_cluster=row_cluster, col_cluster=False, cmap=cmap_name, linecolor="gray", linewidth=0.5, cbar_kws={'label': "median(%s)"%fitness_estimate}, vmin=0, vmax=max_val, annot=df_annot, annot_kws={"size": 13}, fmt="",  yticklabels=1) # 
 
     # map the value to color
     all_vals = sorted(get_uniqueVals_df(df_fit_per_strain[["median %s"%fitness_estimate, "upper_bound_median", "lower_bound_median"]]))
@@ -3920,14 +3966,18 @@ def plot_heatmaps_raw_fitness_all_drugs(df_fitness_measurements, plots_dir_all, 
 
         # get plot
         filename = "%s/raw_%s_across_drugs_heatmap.pdf"%(plots_dir_all, fitness_estimate)
-        if file_is_empty(filename):
+        filename_no_clustering = "%s/raw_%s_across_drugs_heatmap.no_clustering.pdf"%(plots_dir_all, fitness_estimate)
 
-            # checks
-            check_no_nans_series(df_fitness_measurements[fitness_estimate])
-            df_fit = cp.deepcopy(df_fitness_measurements)
+        for file, row_cluster in [(filename, True), (filename_no_clustering, False)]:
 
-            # get plot
-            plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name)
+            if file_is_empty(file):
+
+                # checks
+                check_no_nans_series(df_fitness_measurements[fitness_estimate])
+                df_fit = cp.deepcopy(df_fitness_measurements)
+
+                # get plot
+                plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, file, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name, row_cluster=row_cluster)
 
 def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_layout_file, images_dir, outdir, keep_tmp_files, min_nAUC_to_beConsideredGrowing, hours_experiment):
 
@@ -4057,9 +4107,12 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
             # generate a reduced, simple, susceptibility_df
             simple_susceptibility_df = susceptibility_df[(susceptibility_df.fitness_estimate=="nAUC_rel")].groupby(["drug", "strain"]).apply(get_row_simple_susceptibility_df_one_strain_and_drug).reset_index(drop=True)
-            for f in ['median_MIC50', 'mode_MIC50', 'mad_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC']: simple_susceptibility_df[f] = simple_susceptibility_df[f].apply(get_clean_float_value)
+            for f in ['median_MIC50', 'mode_MIC50', 'mad_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC', 'median_rAUC_log2', 'mode_rAUC_log2', 'mad_rAUC_log2',]: simple_susceptibility_df[f] = simple_susceptibility_df[f].apply(get_clean_float_value)
 
             simple_susceptibility_df["experiment_name"] = experiment_name
+            relevant_fields_simple_susc = ['drug', 'strain', 'median_MIC50', 'mode_MIC50', 'mad_MIC50', 'range_MIC50', 'replicates_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'range_SMG-MIC50', 'replicates_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC', 'range_rAUC', 'replicates_rAUC', 'median_rAUC_log2', 'mode_rAUC_log2', 'mad_rAUC_log2', 'range_rAUC_log2', 'replicates_rAUC_log2', 'max_concentration', 'experiment_name']
+            simple_susceptibility_df = simple_susceptibility_df[relevant_fields_simple_susc]
+
             save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.csv"%extended_outdir)
             simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%extended_outdir, index=False)
             files_main_output.append("susceptibility_measurements_simple.xlsx")
@@ -4108,7 +4161,12 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="all_data", only_absolute_estimates=True)
 
         # make the heatmap of the susceptibility measures        
-        if any(drug_to_nconcs>=2): plot_heatmap_susceptibility(susceptibility_df, "%s/susceptibility_heatmaps"%extended_outdir, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing)
+        if any(drug_to_nconcs>=2): 
+
+            for type_measurements_susc, outir_plots_all_susc in [("raw", "%s/susceptibility_heatmaps"%extended_outdir), ("log", "%s/susceptibility_heatmaps_log_scale"%extended_outdir)]:
+
+                print("Getting susceptibility measurements %s..."%type_measurements_susc)
+                plot_heatmap_susceptibility(susceptibility_df, outir_plots_all_susc, fitness_estimates_susc, experiment_name, min_nAUC_to_beConsideredGrowing, type_measurements_susc)
 
     else:
 
@@ -4117,6 +4175,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         plot_heatmaps_raw_fitness_all_drugs(df_fitness_measurements, outdir_raw_fitness_heatmaps_extended, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name)
 
         files_main_output.append("drug_vs_raw_fitness_heatmaps/raw_nAUC_across_drugs_heatmap.pdf")
+        files_main_output.append("drug_vs_raw_fitness_heatmaps/raw_nAUC_across_drugs_heatmap.no_clustering.pdf")
 
     ##############################################################
 
@@ -4135,7 +4194,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         summary_plots_dir_drug = "%s/%s"%(summary_plots_dir, drug); make_folder(summary_plots_dir_drug)
 
         # copy various plots
-        all_interesting_plots = make_flat_listOflists([["%s/%s"%(root, f) for f in files if f.endswith(".pdf") and "_nAUC" in f and (f.startswith("[%s]_"%drug) or f.startswith("%s_"%drug))] for (root, dirs, files) in os.walk(extended_outdir)])
+        all_interesting_plots = make_flat_listOflists([["%s/%s"%(root, f) for f in files if f.endswith(".pdf") and "_nAUC" in f and (f.startswith("[%s]_"%drug) or f.startswith("%s_"%drug)) and not "susceptibility_heatmaps_log_scale" in root] for (root, dirs, files) in os.walk(extended_outdir)])
 
         if len(all_interesting_plots)>0:
             for f in all_interesting_plots: copy_file(f, "%s/%s"%(summary_plots_dir_drug, get_file(f)))
