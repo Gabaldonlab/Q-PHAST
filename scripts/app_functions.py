@@ -1254,7 +1254,7 @@ def get_MIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
     return real_mic
 
 
-def get_SMG_for_EUCASTreplicate(df, raw_fitness_estimate, MIC, mic_fraction):
+def get_SMG_for_EUCASTreplicate(df, raw_fitness_estimate, MIC, mic_fraction, spotID_conc0):
 
     """This function takes a df of one single eucast measurement, and returns the Supra-MIC growth."""
 
@@ -1272,10 +1272,12 @@ def get_SMG_for_EUCASTreplicate(df, raw_fitness_estimate, MIC, mic_fraction):
     else:
 
         # define the fitness at conc0 and debug it
-        df_conc0 = df[df.concentration==0]
+        df_conc0 = df[df.concentration==0].copy()
         if len(df_conc0)!=1: raise ValueError("there should be only 1 row in df_conc0")
+
         fitness_conc0 = df_conc0[raw_fitness_estimate].iloc[0]
-        if pd.isna(fitness_conc0) or fitness_conc0<=0 or fitness_conc0==np.inf or fitness_conc0==-np.inf: raise ValueError("invalid fitness_conc0: %s"%fitness_conc0)
+        if pd.isna(fitness_conc0) or fitness_conc0<=0 or fitness_conc0==np.inf or fitness_conc0==-np.inf: 
+            raise ValueError("\n\nDuring the calculation of SMG for %s we found a problem. The fitness (%s) in concentration==0 is %s, which  means that SMG cannot be calculated. This either reflects a problem with this sample, or that some parameters are not properly set. There are two things to consider:\n\n- If you want to remove this spot, you may flag it's concentration==0 spot (%s) as a 'bad spot' in the plate layout excel.\n\n- If this %s at concentration==0 is 0.0 it suggests that the threshold min_nAUC_to_beConsideredGrowing may not be properly set. Q-PHAST automatically discards samples that do not grow at concentration==0 (i.e. they have an nAUC below min_nAUC_to_beConsideredGrowing). If you are getting this error it is because %s=0.0, but the spot has a sufficiently high nAUC to be considered growing. Some spots may have a very low nAUC, passing a too low min_nAUC_to_beConsideredGrowing threshold, but still have 0.0 values by other fitness estimates (%s in this case). It this is the case, you may set a higher min_nAUC_to_beConsideredGrowing threshold, and run again the pipeline."%(mic_string, raw_fitness_estimate, fitness_conc0, spotID_conc0, raw_fitness_estimate, raw_fitness_estimate, raw_fitness_estimate))
 
         # if you have at least 2 concentrations above MIC, calculate supra mic growth
         df_conc_after_mic = df[df.concentration>MIC]
@@ -1401,6 +1403,16 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                 # define a grouped df, where each index is a unique sample ID
                 grouped_df = fitness_df_d[["sampleID", "concentration", "is_growing", "log2_concentration", fitness_estimate, raw_fitness_estimate]].sort_values(by=["sampleID", "concentration"]).groupby("sampleID")
 
+                # map each sampleID to the plate_batch, plate, row, column
+                sampleID_to_spotID_conc0 = fitness_df_d[fitness_df_d.concentration==0].set_index("sampleID").spotID
+                number_to_letter = dict(zip(range(1,9), list("ABCDEFGH")))
+                sampleID_to_spotID_conc0 = sampleID_to_spotID_conc0.apply(lambda x: "plate_batch=%s, plate=%i, row=%s, column=%s"%(x[0], x[1], number_to_letter[x[2]], x[3]))
+
+                if len(sampleID_to_spotID_conc0)!=len(set(sampleID_to_spotID_conc0.index)):
+                    raise ValueError("the sampleID should be unique")
+
+                sampleID_to_spotID_conc0 = dict(sampleID_to_spotID_conc0)
+
                 # init a df with the MICs and AUCs for this concentration and fitness_estimate
                 df_f = pd.DataFrame()
 
@@ -1418,7 +1430,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                     # add SMG
                     sample_to_mic = dict(df_f[mic_field]) 
                     smg_field = "SMG_MIC_%i"%(mic_fraction*100)
-                    df_f[smg_field] = grouped_df.apply(lambda x: get_SMG_for_EUCASTreplicate(x, raw_fitness_estimate, sample_to_mic[x.name], mic_fraction))
+                    df_f[smg_field] = grouped_df.apply(lambda x: get_SMG_for_EUCASTreplicate(x, raw_fitness_estimate, sample_to_mic[x.name], mic_fraction, sampleID_to_spotID_conc0[x.name]))
 
                     # print warnings of SMG==nan
                     #df_nan_smg = df_f[pd.isna(df_f[smg_field])]
