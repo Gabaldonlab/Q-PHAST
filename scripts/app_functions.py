@@ -2910,7 +2910,7 @@ def run_analyze_images_process_images(plate_layout_file, images_dir, outdir, enh
     # log
     #start_time_rotation_contrast = time.time()
 
-    # increase contrast all plates together. This is too heacy on the ram.
+    # increase contrast all plates together. This is too heavy on the ram.
     """
     if enhance_image_contrast is True:
         print("Enhancing image contrast...")
@@ -3131,7 +3131,17 @@ def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beCon
     df_bad_spots = df_bad_spots[fields_spot]
 
     # for the other spots, add them automatically
-    df_fitness_measurements = df_fitness_measurements[df_fitness_measurements.bad_spot==False]
+    df_fitness_measurements = df_fitness_measurements[df_fitness_measurements.bad_spot==False].copy()
+
+    # check that the fitness is as expected
+    if len(df_fitness_measurements)!=len(df_fitness_measurements[["plate_batch", "plate", "row", "column"]].drop_duplicates()):
+        raise ValueError("fitness df should be combination of 'plate_batch', 'plate', 'row', 'column'")
+
+    if not all(df_fitness_measurements.groupby(["plate_batch", "plate"]).apply(lambda df: len(set(df.concentration))==1)):
+        raise ValueError("for all combinations of plate_batch and plate, the concentration should be the same")
+
+    if not all(df_fitness_measurements[["drug", "concentration", "plate_batch", "plate"]].drop_duplicates().groupby(["drug", "concentration"]).apply(len)==1):
+        raise ValueError("for a given drug and concentration, there should be only one combination of batch and plate")
 
     # get automatic bad spots
     def get_bad_spot_reason_one_spot(r, nAUC_list, DT_h_list):
@@ -3155,27 +3165,34 @@ def generate_df_w_potential_bad_spots(df_fitness_measurements, min_nAUC_to_beCon
         # else it is not
         else: return ""
 
-    def get_df_bad_spots_one_strain_and_plate(df):
-
+    def get_df_bad_spots_one_strain_and_plate(df_s):
 
         # if there are <3 replicates, return an empty df
-        if len(df)<3: return pd.DataFrame(columns=fields_spot) 
+        if len(df_s)<3: return pd.DataFrame(columns=fields_spot) 
 
         # define if it is a bad spot
-        df["bad_spot_reason"] = df[["nAUC", "DT_h"]].apply(get_bad_spot_reason_one_spot, nAUC_list=list(df.nAUC), DT_h_list=list(df.DT_h), axis=1)
+        df_s["bad_spot_reason"] = df_s[["nAUC", "DT_h"]].copy().apply(get_bad_spot_reason_one_spot, nAUC_list=list(df_s.nAUC), DT_h_list=list(df_s.DT_h), axis=1)
 
         # return bad spots (if any)
-        df = df[df.bad_spot_reason!=""]
-        return df[fields_spot]
+        df_s = df_s[df_s.bad_spot_reason!=""].copy()
 
-    df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate)
+        return df_s[fields_spot].copy()
+
+    df_bad_spots_automatic = pd.concat(list(map(lambda x: get_df_bad_spots_one_strain_and_plate(x[1]), df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]))))
+    #df_bad_spots_automatic = df_fitness_measurements.groupby(["plate_batch", "plate", "strain"]).apply(get_df_bad_spots_one_strain_and_plate) # old error prone
+
+    # change row
     df_bad_spots_automatic["row"] = df_bad_spots_automatic.row.apply(lambda x: num_to_letter[x])
 
+    # warn
     if len(df_bad_spots_automatic)>0: print_with_runtime("WARNING: We found %i (not defined) potential bad spots. We detected them based on a typical outlier-detection method: the Interquartile Range (IQR, which is Q3-Q1) approach. For each strain, in each plate batch and concentration, we calculated Q1, Q3 and IQR for nAUC. Potential bad spots have nAUC outside the (Q1 - 2.5·IQR, Q3 + 2.5·IQR) range for their strain. This method is approximate, so in a subsequent step you'll need to validate which of these spots are actually bad spots."%(len(df_bad_spots_automatic)))
 
     # merge
     df_bad_spots = df_bad_spots.append(df_bad_spots_automatic)
 
+    # checks
+    if len(df_bad_spots)!=len(df_bad_spots[["plate_batch", "plate", "row", "column"]].drop_duplicates()):
+        raise ValueError("df_bad_spots should be combination of 'plate_batch', 'plate', 'row', 'column'")
 
     # return
     return df_bad_spots[fields_spot].sort_values(by=["plate_batch", "plate", "strain", "row", "column"])
@@ -3665,6 +3682,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         #print_with_runtime("Generating bad-spot images in parallel in %i threads..."%multiproc.cpu_count())
         df_offsets = df_offsets.set_index(["plate_batch", "plate", "strain"])
         inputs_fn_bad_spots = [(r.plate_batch, r.plate, r.row, r.column, cp.deepcopy(df_offsets.loc[{(r.plate_batch, r.plate, r.strain)}]), cp.deepcopy(df_growth_all.loc[{(r.plate_batch, r.plate, r.strain)}].reset_index(drop=True)), merged_images_bad_spots_dir, processed_images_dir_each_plate, plate_batch_to_images, plate_batch_and_plate_to_box_size[(r.plate_batch, r.plate)], hours_experiment) for I, r in df_bad_spots_auto.iterrows()]
+
         run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_test_bad_spot)
 
     # save files, marking the end
