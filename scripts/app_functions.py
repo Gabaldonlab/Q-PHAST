@@ -3673,6 +3673,11 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         for plate_batch, plate in df_bad_spots_auto[["plate_batch", "plate"]].drop_duplicates().values:
             df_offsets_plate = df_offsets[(df_offsets.plate_batch==plate_batch) & (df_offsets.plate==plate)]
 
+            # debug the fact that some spots are not in the plate
+            #if not (n_row+1, 1) in set(df_offsets_plate.index):
+            #    raise ValueError("The ")
+
+            # get coordinates
             box_size_rows = [df_offsets_plate.loc[(n_row+1, 1), "YOffset"] - df_offsets_plate.loc[(n_row, 1), "YOffset"] for n_row in range(1,8)]
             box_size_cols = [df_offsets_plate.loc[(1, col+1), "XOffset"] - df_offsets_plate.loc[(1, col), "XOffset"] for col in range(1,12)]
 
