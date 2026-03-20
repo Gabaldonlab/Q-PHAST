@@ -1135,7 +1135,8 @@ def copy_file(origin_file, dest_file):
     if file_is_empty(dest_file):
 
         dest_file_tmp = "%s.tmp"%dest_file
-        shutil.copy(origin_file, dest_file_tmp)
+        #shutil.copy(origin_file, dest_file_tmp) # old. Error trying to copy permissions
+        shutil.copyfile(origin_file, dest_file_tmp)
         os.rename(dest_file_tmp, dest_file)
 
 
@@ -1252,6 +1253,85 @@ def get_MIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
     if real_mic==0: raise ValueError("mic can't be 0. Check how you calculate %s"%fitness_estimate)
 
     return real_mic
+
+
+
+def get_maxMIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
+
+    """
+    This function takes a df of one single eucast measurement, and returns the max Minimal Inhibitory concentration, where the relative fitness is fitness_estimate, The df should be sorted by concentration. This is the maximum concentration with rel fitness <  mic_fraction, where the previous concentration is > mic_fraction.
+    """
+
+    # get the expected concs
+    max_expected_conc = concs_info["max_conc"]
+    first_concentration = concs_info["first_conc"]
+    expected_conc_to_previous_conc = concs_info["conc_to_previous_conc"]
+
+    # check that the df is sorterd by conc
+    if sorted(df.concentration)!=list(df.concentration): raise ValueError("the df should be sorted by concentration")
+    
+    
+    print(fitness_estimate, df[["concentration", fitness_estimate]])
+    think_how_to_implement_this
+
+    # get the assayed concs
+    assayed_concs = set(df.concentration)
+
+    # calculate MIC
+    concentrations_less_than_mic_fraction = df[df[fitness_estimate]<(1-mic_fraction)]["concentration"]
+    
+    # when there is no mic conc
+    if len(concentrations_less_than_mic_fraction)==0:
+
+        # when the max conc has been considered and no mic is found
+        if max_expected_conc in assayed_concs: real_max_mic = (max_expected_conc*2)
+
+        # else we can't know were the mic is
+        else: 
+            #print("WARNING: There is no MIC, but the last concentration was not assayed for %s. MIC is set to NaN"%mic_string)
+            real_max_mic = np.nan
+
+    # when there is one
+    else:
+
+        # calculate the mic
+        max_mic = max(concentrations_less_than_mic_fraction)
+
+        # calculate the concentration before the mic
+        df_conc_before_mic = df[df.concentration<max_mic]
+        
+        print(max_mic, df_conc_before_mic)
+        
+        dadakjhgdaajhgda
+
+        # when there is no such df, just keep the mic if there is only the first assayed concentration 
+        if len(df_conc_before_mic)==0: 
+
+            # if the mic is the first concentration or the first concentration is already below 1-mic_fraction
+            if mic==first_concentration: real_mic = mic    
+            elif mic==0.0: real_mic = 0.001 # pseudocount          
+            else: 
+                #print("WARNING: We cound not find MIC for %s"%mic_string)
+                real_mic = np.nan
+
+        else:
+
+            # get the known or expected concentrations
+            conc_before_mic = df_conc_before_mic.iloc[-1].concentration
+            expected_conc_before_mic = expected_conc_to_previous_conc[mic]
+
+            # if the concentration before mic is not the expected one, just not consider
+            if abs(conc_before_mic-expected_conc_before_mic)>=0.001: 
+                #print("WARNING: We cound not find MIC for %s"%mic_string)
+                real_mic = np.nan
+            else: real_mic = mic
+
+    # if there is any missing 
+    if real_mic==0: raise ValueError("mic can't be 0. Check how you calculate %s"%fitness_estimate)
+
+    return real_max_mic
+
+
 
 
 def get_SMG_for_EUCASTreplicate(df, raw_fitness_estimate, MIC, mic_fraction, spotID_conc0):
@@ -1422,6 +1502,10 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                     # add MIC
                     mic_field = "MIC_%i"%(mic_fraction*100)
                     df_f[mic_field] = grouped_df.apply(lambda x: get_MIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
+                    
+                    # add maxMIC
+                    #max_mic_field = "maxMIC_%i"%(mic_fraction*100)
+                    #df_f[max_mic_field] = grouped_df.apply(lambda x: get_maxMIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
 
                     # print warnings of MIC==nan
                     #df_nan_mic = df_f[pd.isna(df_f[mic_field])]
@@ -1457,7 +1541,7 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                 df_all = df_all.append(df_f).reset_index(drop=True)
 
         # checks 
-        for k in set(df_all.keys()).difference({"MIC_25", "MIC_50", "MIC_75", "MIC_90", "SMG_MIC_25", "SMG_MIC_50", "SMG_MIC_75", "SMG_MIC_90", "rAUC_concentration", "rAUC_log2_concentration"}): check_no_nans_series(df_all[k])
+        for k in set(df_all.keys()).difference({"MIC_25", "MIC_50", "MIC_75", "MIC_90", "maxMIC_25", "maxMIC_50", "maxMIC_75", "maxMIC_90", "SMG_MIC_25", "SMG_MIC_50", "SMG_MIC_75", "SMG_MIC_90", "rAUC_concentration", "rAUC_log2_concentration"}): check_no_nans_series(df_all[k])
 
         # add exp name
         df_all["experiment_name"] = experiment_name
@@ -3492,16 +3576,16 @@ maxDT_h = 25.0
 def get_DT_good_rsq(DT_h, rsq, rsq_tshd=0.9):
     if rsq>=rsq_tshd: return DT_h
     else: return maxDT_h
-
+    
 def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, outdir, min_nAUC_to_beConsideredGrowing, reference_plate, hours_experiment):
 
-    """Generates the fitness measurements."""
+    """Generates the fitness measurements. Previous_output is a dir with the dirs"""
 
     #### LOAD DATA ####
 
     # get plate layout df
     df_plate_layout, all_drugs, measure_susceptibility, experiment_name = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
-
+  
     # define the tmpdir
     tmpdir = "%s/tmp"%outdir
     if not os.path.isdir(tmpdir): raise ValueError("tmpdir should exist")
@@ -3565,10 +3649,13 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
 
         # change
         df_growth_measurements = df_growth_measurements.rename(columns={"Row":"row", "Column":"column"})[df_growth_fields]
-
-        # print nans in blueMeanBack
-        df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)][["Trimmed", "Expt.Time"]]
-        if len(df_test)>0: raise ValueError("There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel."%(plate_batch, plate))
+        check_no_nans_in_df(df_growth_measurements, ignore_keys={"blueMeanBack", "greenMeanBack", "redMeanBack", 'redMean', 'greenMean', 'blueMean'})
+        
+        # print warning for NaNs
+        df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)].copy()
+        if len(df_test)>0: 
+            if any(df_test.Growth!=0.001): raise ValueError("the Growth should be the pseudocount 0.001")
+            print("WARNING: There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be properly analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel. Right now, the software will just set Growh=0.001 (pseudocount) for these and analyze them. This is the desired behavior in case that you want to compare susceptibility measurements across experiments with equivalent drug concentration ranges. These are the spots and timepoints with no Growth:\n%s"%(plate_batch, plate, df_test[["row", "column", "Timeseries.order", "Growth"]]))
 
         # keep
         df_growth_measurements_all = df_growth_measurements_all.append(df_growth_measurements)
@@ -3597,7 +3684,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
     df_growth_measurements_all = df_growth_measurements_all.merge(df_plate_layout, how="left", left_on=merge_fields, right_on=merge_fields, validate="many_to_one").reset_index(drop=True)
 
     # checks
-    for k in set(df_growth_measurements_all.keys()).difference({"redMean", "greenMean", "blueMean"}): check_no_nans_series(df_growth_measurements_all[k])
+    for k in set(df_growth_measurements_all.keys()).difference({"redMean", "greenMean", "blueMean", "blueMeanBack", "greenMeanBack", "redMeanBack"}): check_no_nans_series(df_growth_measurements_all[k])
 
     # save
     save_df_as_tab(df_growth_measurements_all[df_growth_fields], "%s/growth_measurements_all_timepoints.csv"%extended_outdir)
@@ -3691,7 +3778,7 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         run_function_in_parallel(inputs_fn_bad_spots, generate_merged_image_test_bad_spot)
 
     # save files, marking the end
-    save_object(df_fitness_measurements, "%s/df_fitness_measurements.py"%tmpdir)
+    save_object(df_fitness_measurements, "%s/df_fitness_measurements.py"%extended_outdir)
     save_df_as_tab(df_bad_spots, "%s/df_bad_spots_automatic.tab"%tmpdir)
 
     ##################################################################################
@@ -3850,7 +3937,13 @@ def generate_plot_growth_curves_and_images_one_strain_and_drug(strain, drug, df_
         merged_image.save(filename_tmp)
         os.rename(filename_tmp, filename)
 
+def check_no_nans_in_df(df, ignore_keys=set()):
 
+    """Returns an error if there ar nans in a df"""
+
+    keys_consider = list(set(df.keys()).difference(ignore_keys))
+    if any(pd.isna(df[keys_consider]).apply(any, axis=1)): 
+        for k in keys_consider: check_no_nans_series(df[k])
 
 def plot_heatmap_raw_fitness_all_drugs_one_fe(df_fit, filename, all_strains, fitness_estimate, min_nAUC_to_beConsideredGrowing, experiment_name, row_cluster=True):
 
@@ -4027,14 +4120,19 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
     # get plate layout df
     df_plate_layout, all_drugs, measure_susceptibility, experiment_name = get_df_plate_layout_and_all_drugs(plate_layout_file, images_dir)
 
-    # define the tmpdir
+    # define dirs
     tmpdir = "%s/tmp"%outdir
-    if not os.path.isdir(tmpdir): raise ValueError("tmpdir should exist")
-
-    # define the extended_outdir
     extended_outdir = "%s/extended_outputs"%outdir
-    if not os.path.isdir(extended_outdir): raise ValueError("extended_outdir should exist")
-
+    
+    # checks
+    if not os.path.isdir("/previous_output"):            
+        if not os.path.isdir(tmpdir): raise ValueError("tmpdir should exist")
+        if not os.path.isdir(extended_outdir): raise ValueError("extended_outdir should exist")
+        
+    else:
+        make_folder(tmpdir)
+        make_folder(extended_outdir)
+        
     ###############################
 
 
@@ -4042,18 +4140,41 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
     # init a list with the files to keep in main
     files_main_output = []
+    
+    # load the fitness df and df with bad spots, taking from previous if already done
+    if not os.path.isdir("/previous_output"):           
+        
+        # load fitness data 
+        df_fitness_measurements = load_object("%s/df_fitness_measurements.py"%extended_outdir)
+        
+        # load df with bad spots and write it to outdir as an excel
+        df_bad_spots = get_tab_as_df_or_empty_df("%s/bad_spots_validated.csv"%tmpdir)
+        text_bad_spot_type = "both manually-defined and automatically-predicted"
+        if len(df_bad_spots)>0: 
+            df_bad_spots["experiment_name"] = experiment_name
+            df_bad_spots[['plate_batch', 'plate', 'row', 'column', 'drug', 'concentration', 'strain', 'experiment_name', 'bad_spot_reason']].sort_values(by=["plate_batch", "plate", "strain", "row", "column"]).to_excel("%s/bad_spots.xlsx"%extended_outdir, index=False)
 
-    # load the fitness df
-    df_fitness_measurements = load_object("%s/df_fitness_measurements.py"%tmpdir)
-
-    # load df with bad spots and write it to outdir as an excel
-    df_bad_spots = get_tab_as_df_or_empty_df("%s/bad_spots_validated.csv"%tmpdir)
-
-    if len(df_bad_spots)>0: 
-        df_bad_spots["experiment_name"] = experiment_name
-        df_bad_spots[['plate_batch', 'plate', 'row', 'column', 'drug', 'concentration', 'strain', 'experiment_name', 'bad_spot_reason']].sort_values(by=["plate_batch", "plate", "strain", "row", "column"]).to_excel("%s/bad_spots.xlsx"%extended_outdir, index=False)
-
-    else: print_with_runtime("There are no bad spots, so that bad_spots.xlsx will not be generated.")
+        else: print_with_runtime("There are no bad spots, so that bad_spots.xlsx will not be generated.")
+        
+    else:
+        print("WARNING: Running fitness and susceptibility measurements on data from previous output folder. The bad spots considered are only those in the provided plate_layout.xlsx. Thus, we recommend that it includes those from the previous 'extended_outputs/bad_spots.xlsx' as well as any manually curated ones.")
+    
+        # load fitness adapting to new layout
+        df_fitness_measurements = load_object("/previous_output/extended_outputs/df_fitness_measurements.py").drop(['strain', 'drug', 'concentration', 'bad_spot', 'sampleID', 'Gene', 'is_growing'], axis=1)
+        initial_len_fdf = len(df_fitness_measurements)
+        df_fitness_measurements = df_fitness_measurements.merge(df_plate_layout.drop(["bad_spot"], axis=1), on=['plate_batch', 'plate', 'row', 'column'], how="right", validate="one_to_one")
+        check_no_nans_in_df(df_fitness_measurements)
+        df_fitness_measurements["sampleID"] = df_fitness_measurements.strain + "_" + df_fitness_measurements.replicateID
+        df_fitness_measurements["is_growing"]  = df_fitness_measurements.nAUC>=min_nAUC_to_beConsideredGrowing # the nAUC to be considered growing
+        
+        if initial_len_fdf!=len(df_fitness_measurements): 
+            print("WARNING: The new plate layout has less spots (%i) than the one from the previous output (%i). This is likely because you removed some plates from the analysis"%(len(df_fitness_measurements), initial_len_fdf))
+        
+        # define bad spots to only include those from the plate layout
+        df_bad_spots = df_plate_layout[df_plate_layout.bad_spot==True][['plate_batch', 'plate', 'row', 'column']].copy()
+        number_to_letter = dict(zip(range(1,9), list("ABCDEFGH")))
+        df_bad_spots["row"] = df_bad_spots.row.apply(lambda x: number_to_letter[x])
+        text_bad_spot_type = "manually-defined"
 
     # change to numbers
     letter_to_number = dict(zip(list("ABCDEFGH"), range(1,9)))
@@ -4077,8 +4198,8 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
     df_fitness_measurements["experiment_name"] = experiment_name
 
     # log
-    print_with_runtime("There are a total of %i validated bad spots (both manually-defined and automatically-predicted)."%(sum(df_fitness_measurements.bad_spot)))
-
+    print_with_runtime("There are a total of %i validated bad spots (%s)."%(sum(df_fitness_measurements.bad_spot), text_bad_spot_type))
+    
     # create simple raw fitness table
     generate_simplified_fitness_table(df_fitness_measurements, ["nAUC"], "%s/fitness_measurements_simple.csv"%extended_outdir, experiment_name)
     files_main_output.append("fitness_measurements_simple.xlsx")
@@ -4137,7 +4258,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         if any(drug_to_nconcs>=2):
 
             # get the susceptibility df
-            min_points_to_calculate_resistance_auc = 3 # you need at least three points (including 0, to calculate rAUC)
+            min_points_to_calculate_resistance_auc = 3 # you need at least three points (including 0, to calculate rAUC)    
             susceptibility_df = get_susceptibility_df(df_fitness_measurements, fitness_estimates_susc, min_points_to_calculate_resistance_auc, "%s/susceptibility_measurements.csv"%extended_outdir, experiment_name)
 
             # generate a reduced, simple, susceptibility_df
@@ -4159,26 +4280,28 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         save_df_as_tab(df_fitness_measurements, "%s/fitness_measurements.csv"%extended_outdir)
 
     ############################################################
-
+    
     ###### MAKE PLOTS THAT ARE GENERAL TO ALL RUNS ######
 
     # add general fields
     df_fitness_measurements["not_bad_spot"] = ~df_fitness_measurements.bad_spot
 
     # make plots of each strain with the images and plots
-    all_strains = sorted(set(df_fitness_measurements.strain))
-    dir_growth_curves_and_images = "%s/growth_curves_and_images"%extended_outdir; make_folder(dir_growth_curves_and_images)
+    if not os.path.isdir("/previous_output"):           
 
-    for drug in drug_to_nconcs.keys():
-        print("Getting plots with growth curves and images for drug %s..."%drug)
+        all_strains = sorted(set(df_fitness_measurements.strain))
+        dir_growth_curves_and_images = "%s/growth_curves_and_images"%extended_outdir; make_folder(dir_growth_curves_and_images)
 
-        outdir_plots = "%s/%s"%(dir_growth_curves_and_images, drug); make_folder(outdir_plots)
-        df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
-        inputs_fn_plots_strain = [(s, drug, cp.deepcopy(df_fit[df_fit.strain==s]), outdir, outdir_plots, hours_experiment, {True:"idx_correct_rel_estimates", False:"not_bad_spot"}[measure_susceptibility]) for I,s in enumerate(all_strains)]
-        run_function_in_parallel(inputs_fn_plots_strain, generate_plot_growth_curves_and_images_one_strain_and_drug)
+        for drug in drug_to_nconcs.keys():
+            print("Getting plots with growth curves and images for drug %s..."%drug)
+
+            outdir_plots = "%s/%s"%(dir_growth_curves_and_images, drug); make_folder(outdir_plots)
+            df_fit = df_fitness_measurements[(df_fitness_measurements.drug==drug) | (df_fitness_measurements.concentration==0)]
+            inputs_fn_plots_strain = [(s, drug, cp.deepcopy(df_fit[df_fit.strain==s]), outdir, outdir_plots, hours_experiment, {True:"idx_correct_rel_estimates", False:"not_bad_spot"}[measure_susceptibility]) for I,s in enumerate(all_strains)]
+            run_function_in_parallel(inputs_fn_plots_strain, generate_plot_growth_curves_and_images_one_strain_and_drug)
 
     #####################################################
-
+    
     ######### MAKE PLOTS ONLY RELATED TO SUSCEPTIBILITY ##########
 
     if measure_susceptibility is True:
@@ -4211,7 +4334,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
 
         files_main_output.append("drug_vs_raw_fitness_heatmaps/raw_nAUC_across_drugs_heatmap.pdf")
         files_main_output.append("drug_vs_raw_fitness_heatmaps/raw_nAUC_across_drugs_heatmap.no_clustering.pdf")
-
+        
     ##############################################################
 
     #### RESTRUCTURE ####

@@ -36,6 +36,7 @@ parser.add_argument("--min_nAUC_to_beConsideredGrowing", dest="min_nAUC_to_beCon
 parser.add_argument("--hours_experiment", dest="hours_experiment", required=False, type=float, default=24.0, help="A float that indicates the total experiment hours that are used to calculate the fitness estimates.")
 parser.add_argument("--enhance_image_contrast", dest="enhance_image_contrast", required=False,  type=str, default='True', help="True/False. Enhances contrast of images. Only for developers.")
 parser.add_argument("--auto_accept", dest="auto_accept", required=False, default=False, action="store_true", help="Automatically accepts all the coordinates and bad spots. Only for developers.")
+parser.add_argument("--previous_output", dest="previous_output", required=False, default=None, help="Full path to the output directory of a previous Q-PHAST run. This will be used to re-use its growth measurements.")
 
 # developer args 
 parser.add_argument("--keep_tmp_files", dest="keep_tmp_files", required=False, default=False, action="store_true", help="Keep the intermediate files (for debugging). Only for developers.")
@@ -63,33 +64,33 @@ fun.print_with_runtime("Running Q-PHAST...")
 
 # only get arguments through GUI if there are no arguments passed
 if len(sys.argv)==1:
-
+        
     # generate a series of buttons that select common arguments
     fun.generate_os_window()
-
     fun.generate_docker_image_window()
-
+    
     # generate the window of each type of args
     fun.generate_analyze_images_window_mandatory()
-
+    
     # OLD # fun.generate_boolean_args_window(title='Keep temporary files\nat the end?', subtitle="(set 'Yes' to debug)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial bold")], opt_att="keep_tmp_files")
     # OLD # fun.generate_boolean_args_window(title='Skip manual verification of\ncoordinates and bad spots?', subtitle="(set 'Yes' at your own risk)", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept")
     
     # generate windows for boolean arguments
     fun.generate_boolean_args_window(title='Manual verification of\ncoordinates and bad spots?', subtitle="'Yes' ~ accurate results\n'No' ~ faster, risky run", textVal_list=[(True, "Yes", "Arial"), (False, "No", "Arial")], opt_att="auto_accept_reverse")
     opt.auto_accept = {True:False, False:True}[opt.auto_accept_reverse]
-
+    
     # define the output and input
-    opt.output = "%s%soutput_%s"%(opt.output, fun.get_os_sep(), fun.pipeline_name)
+    opt.output = "%s%s%s_output_%s"%(opt.output, fun.get_os_sep(), opt.output_folder_prefix, fun.pipeline_name)
+    
 
     # generate the image analysis
     fun.generate_analyze_images_window_optional()
-
+    
     # generate the closing window
     fun.generate_closing_window("Running %s..."%fun.pipeline_name)
 
     # log
-    #print("Running pipeline...")
+    print("Running pipeline...")
 
 ###########################################
 
@@ -129,6 +130,7 @@ fun.print_with_runtime("Writing results into the output folder '%s', using input
 # print the cmd
 arguments = " ".join(["--%s %s"%(arg_name, arg_val) for arg_name, arg_val in [("os", opt.os), ("input", opt.input), ("output", opt.output), ("docker_image", opt.docker_image), ("min_nAUC_to_beConsideredGrowing", opt.min_nAUC_to_beConsideredGrowing), ("hours_experiment", opt.hours_experiment), ("enhance_image_contrast", opt.enhance_image_contrast), ("parms_colonyzer", opt.parms_colonyzer)]])
 if opt.auto_accept is True: arguments += " --auto_accept"
+if not opt.previous_output is None: arguments += "--previous_output %s"%opt.previous_output
 
 full_command = "%s %s%smain.py %s"%(sys.executable, pipeline_dir, os_sep, arguments)
 fun.print_with_runtime("Executing the following command (you may use it to reproduce the analysis):\n---\n%s\n---"%full_command)
@@ -136,6 +138,7 @@ fun.print_with_runtime("Executing the following command (you may use it to repro
 # check that the docker image can be run
 fun.print_with_runtime("Trying to run docker image. If this fails it may be because either the image is not in your system or docker is not properly initialized.")
 fun.run_cmd('docker run -it --rm %s bash -c "sleep 1"'%(opt.docker_image))
+fun.print_with_runtime("Docker runs well")
 
 #############################
 
@@ -173,6 +176,9 @@ fun.delete_folder(tmp_input_dir); fun.make_folder(tmp_input_dir)
 # init command with general features
 docker_cmd = 'docker run --rm -it -e contrast_enhancement_image=%s -e hours_experiment=%s -e KEEP_TMP_FILES=%s -e min_nAUC_to_beConsideredGrowing=%s -e enhance_image_contrast=%s -e reference_plate=%s -e PARMS_COLONYZER=%s -v "%s":/small_inputs -v "%s":/output -v "%s":/images'%(opt.contrast_enhancement_image, opt.hours_experiment, opt.keep_tmp_files, opt.min_nAUC_to_beConsideredGrowing, opt.enhance_image_contrast, str(opt.reference_plate), opt.parms_colonyzer, tmp_input_dir, opt.output, opt.input)
 
+if not opt.previous_output is None:
+    docker_cmd += ' -v "%s":/previous_output'%opt.previous_output
+
 # add the scripts from outside
 docker_cmd += ' -v "%s%sscripts":/workdir_app/scripts'%(pipeline_dir, fun.get_os_sep())
 
@@ -185,26 +191,38 @@ open(full_command_file, "w").write(full_command+"\n")
 # get the corrected images
 print("\n")
 fun.print_with_runtime("STEP 1/5: Getting cropped, flipped images...")
-fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s%sanalyze_images_process_images_correct_finish.txt"%(opt.output, fun.get_os_sep())])
-
+if opt.previous_output is None:
+    fun.run_docker_cmd("%s -e MODULE=analyze_images_process_images"%(docker_cmd), ["%s%sanalyze_images_process_images_correct_finish.txt"%(opt.output, fun.get_os_sep())])
+else:
+    fun.print_with_runtime("Skipping because previous output was provided...")
+    
 if opt.break_after=="step1": 
     print("Exiting pipeline after step 1...")
     sys.exit(0)
-
+    
 # select the coordinates based on user input
 print("\n")
 fun.print_with_runtime("STEP 2/5: Selecting the coordinates of the spots...")
-fun.get_colonyzer_coordinates_GUI(opt.output, docker_cmd)
-
+if opt.previous_output is None:
+    fun.get_colonyzer_coordinates_GUI(opt.output, docker_cmd)
+else:
+    fun.print_with_runtime("Skipping because previous output was provided...")
+    
 # get fitness measurements
 print("\n")
 fun.print_with_runtime("STEP 3/5: Getting fitness measurements...")
-fun.run_docker_cmd("%s -e MODULE=get_fitness_measurements"%(docker_cmd), ["%s%sget_fitness_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep())])
-
+if opt.previous_output is None:
+    fun.run_docker_cmd("%s -e MODULE=get_fitness_measurements"%(docker_cmd), ["%s%sget_fitness_measurements_correct_finish.txt"%(opt.output, fun.get_os_sep())])
+else:
+    fun.print_with_runtime("Skipping because previous output was provided...")
+    
 # validate bad spots
 print("\n")
 fun.print_with_runtime("STEP 4/5: Manually-curating bad spots...")
-fun.generate_df_bad_spots_automatic_validated(opt.output)
+if opt.previous_output is None:
+    fun.generate_df_bad_spots_automatic_validated(opt.output)
+else:
+    fun.print_with_runtime("Skipping because previous output was provided...")
 
 if opt.break_after=="step4": 
     print("Exiting pipeline after step 4...")

@@ -394,10 +394,20 @@ def generate_analyze_images_window_mandatory():
 
     output_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_output)
     output_button.pack(side=tk.TOP, expand=True)
+    
+    # add the output folder prefix
+    tk.Label(window, text='\n3) Output folder prefix:', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='(prefix to add to the output folder\ne.g. experiment name)', font=('Arial bold',13)).pack(side=tk.TOP)
+    outprefix_entry = tk.Entry(window, font=('Arial bold',13))
+    outprefix_entry.insert(0, "experiment_XXX")
+    outprefix_entry.pack(side=tk.TOP, expand=True)
 
     # run and capture the entries
-    tk.Label(window, text='\n3) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
+    tk.Label(window, text='\n4) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
     def run_module(): 
+        
+        # get the predix
+        opt.output_folder_prefix = str(outprefix_entry.get())
 
         # run
         window.destroy()
@@ -447,9 +457,19 @@ def generate_analyze_images_window_optional():
     enhance_image_contrast_entry.insert(0, str(opt.enhance_image_contrast))
     enhance_image_contrast_entry.pack(side=tk.TOP, expand=True)
 
+    # add the entry of the previous_output
+    tk.Label(window, text='\n4) Previous Q-PHAST output', font=('Arial bold',15)).pack(side=tk.TOP)
+    tk.Label(window, text='(to re-use its growth measurements)', font=('Arial bold',13)).pack(side=tk.TOP)
+    
+    def define_previous_output(): 
+        opt.previous_output = askdirectory()
+        previous_output_button["text"] = get_last_part_of_string(opt.previous_output)
 
+    previous_output_button = tk.Button(window, text="Browse folders", padx=15, pady=15, font=('Arial bold',13), command=define_previous_output)
+    previous_output_button.pack(side=tk.TOP, expand=True)
+        
     # run and capture the entries
-    tk.Label(window, text='\n4) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
+    tk.Label(window, text='\n5) click to Run:', font=('Arial bold',15)).pack(side=tk.TOP, expand=True)
     dict_data = {"run_click":False}
     def run_module(): 
 
@@ -1040,9 +1060,14 @@ def get_if_excels_are_equal(file1, file2):
     """Returns a boolean indicating if two excel files are the same"""
 
     # load
-    df1 = pd.read_excel(file1).reset_index(drop=True).applymap(str)
-    df2 = pd.read_excel(file2).reset_index(drop=True).applymap(str)
-
+    try:
+        df1 = pd.read_excel(file1).reset_index(drop=True).applymap(str)
+        df2 = pd.read_excel(file2).reset_index(drop=True).applymap(str)
+        
+    except:
+        df1 = pd.read_excel(file1).reset_index(drop=True).map(str)
+        df2 = pd.read_excel(file2).reset_index(drop=True).map(str)
+        
     # get each rows and cols
     rows1 = list(df1.index)
     rows2 = list(df2.index)
