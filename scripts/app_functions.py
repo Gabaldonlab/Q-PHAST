@@ -1256,84 +1256,38 @@ def get_MIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
 
 
 
-def get_maxMIC_for_EUCASTreplicate(df, fitness_estimate, concs_info, mic_fraction):
+def get_maxConc_RelFitness_atLeast_mic_fraction(df, fitness_estimate, concs_info, mic_fraction):
 
     """
-    This function takes a df of one single eucast measurement, and returns the max Minimal Inhibitory concentration, where the relative fitness is fitness_estimate, The df should be sorted by concentration. This is the maximum concentration with rel fitness <  mic_fraction, where the previous concentration is > mic_fraction.
+    This function takes a df of one single eucast measurement, and returns the max concentration where the rel. fitness is >= mic_fraction, where the relative fitness is fitness_estimate, The df should be sorted by concentration.
     """
-
-    # get the expected concs
-    max_expected_conc = concs_info["max_conc"]
-    first_concentration = concs_info["first_conc"]
-    expected_conc_to_previous_conc = concs_info["conc_to_previous_conc"]
 
     # check that the df is sorterd by conc
     if sorted(df.concentration)!=list(df.concentration): raise ValueError("the df should be sorted by concentration")
     
+    # get the target concentration
+    concentrations_above_mic_fraction = list(df[df[fitness_estimate]>=mic_fraction].concentration)
+    if len(concentrations_above_mic_fraction)==0: raise ValueError("some concentrations should have rel fitness >= MIC fraction")
+    max_conc = max(concentrations_above_mic_fraction)
     
-    print(fitness_estimate, df[["concentration", fitness_estimate]])
-    think_how_to_implement_this
-
-    # get the assayed concs
-    assayed_concs = set(df.concentration)
-
-    # calculate MIC
-    concentrations_less_than_mic_fraction = df[df[fitness_estimate]<(1-mic_fraction)]["concentration"]
+    # if the max_conc is the maximum expected one, just get it
+    if max_conc==concs_info["max_conc"]:
+        return max_conc
     
-    # when there is no mic conc
-    if len(concentrations_less_than_mic_fraction)==0:
-
-        # when the max conc has been considered and no mic is found
-        if max_expected_conc in assayed_concs: real_max_mic = (max_expected_conc*2)
-
-        # else we can't know were the mic is
-        else: 
-            #print("WARNING: There is no MIC, but the last concentration was not assayed for %s. MIC is set to NaN"%mic_string)
-            real_max_mic = np.nan
-
-    # when there is one
+    # if it is 0, add pseudocount
+    elif max_conc==0:
+        return 0.001
+    
+    # other cases, check the next concs
     else:
-
-        # calculate the mic
-        max_mic = max(concentrations_less_than_mic_fraction)
-
-        # calculate the concentration before the mic
-        df_conc_before_mic = df[df.concentration<max_mic]
+        expected_next_concs = concs_info["conc_to_next_concs"][max_conc]
+        assayed_next_concs = set(df[df.concentration>max_conc].concentration)
         
-        print(max_mic, df_conc_before_mic)
-        
-        dadakjhgdaajhgda
-
-        # when there is no such df, just keep the mic if there is only the first assayed concentration 
-        if len(df_conc_before_mic)==0: 
-
-            # if the mic is the first concentration or the first concentration is already below 1-mic_fraction
-            if mic==first_concentration: real_mic = mic    
-            elif mic==0.0: real_mic = 0.001 # pseudocount          
-            else: 
-                #print("WARNING: We cound not find MIC for %s"%mic_string)
-                real_mic = np.nan
-
+        if expected_next_concs==assayed_next_concs:
+            return max_conc
         else:
-
-            # get the known or expected concentrations
-            conc_before_mic = df_conc_before_mic.iloc[-1].concentration
-            expected_conc_before_mic = expected_conc_to_previous_conc[mic]
-
-            # if the concentration before mic is not the expected one, just not consider
-            if abs(conc_before_mic-expected_conc_before_mic)>=0.001: 
-                #print("WARNING: We cound not find MIC for %s"%mic_string)
-                real_mic = np.nan
-            else: real_mic = mic
-
-    # if there is any missing 
-    if real_mic==0: raise ValueError("mic can't be 0. Check how you calculate %s"%fitness_estimate)
-
-    return real_max_mic
-
-
-
-
+            return np.nan 
+        
 def get_SMG_for_EUCASTreplicate(df, raw_fitness_estimate, MIC, mic_fraction, spotID_conc0):
 
     """This function takes a df of one single eucast measurement, and returns the Supra-MIC growth."""
@@ -1462,8 +1416,8 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
             fitness_df_d["log2_concentration"] = np.log2(fitness_df_d.concentration + pseudocount_log2_concentration)
 
             # map each drug to the expected concentrations
-            concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}}
-
+            concentrations_dict = {"max_conc":max(sorted_concentrations), "zero_conc":sorted_concentrations[0], "first_conc":sorted_concentrations[1], "conc_to_previous_conc":{c:sorted_concentrations[I-1] for I,c in enumerate(sorted_concentrations) if I>0}, "conc_to_next_concs":{c: set(sorted_concentrations[I+1:]) for I,c in enumerate(sorted_concentrations) if I<(len(sorted_concentrations)-1)}}
+         
             sorted_log2_concentrations = [np.log2(c + pseudocount_log2_concentration) for c in sorted_concentrations]
             concentrations_dict_log2 = {"max_conc":max(sorted_log2_concentrations), "zero_conc":sorted_log2_concentrations[0], "first_conc":sorted_log2_concentrations[1], "conc_to_previous_conc":{c:sorted_log2_concentrations[I-1] for I,c in enumerate(sorted_log2_concentrations) if I>0}}
 
@@ -1497,16 +1451,15 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                 df_f = pd.DataFrame()
 
                 # add MIC:
-                for mic_fraction in [0.25, 0.5, 0.75, 0.9]:
+                for mic_fraction in [0.1, 0.25, 0.5, 0.75, 0.9]:
 
                     # add MIC
                     mic_field = "MIC_%i"%(mic_fraction*100)
                     df_f[mic_field] = grouped_df.apply(lambda x: get_MIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
                     
-                    # add maxMIC
-                    #max_mic_field = "maxMIC_%i"%(mic_fraction*100)
-                    #df_f[max_mic_field] = grouped_df.apply(lambda x: get_maxMIC_for_EUCASTreplicate(x, fitness_estimate, concentrations_dict, mic_fraction))
-
+                    # add maximum concentration where rel fitness is above the mic_fraction
+                    df_f["max_Conc_RelFitness_atLeast%s"%(mic_fraction)] = grouped_df.apply(lambda x: get_maxConc_RelFitness_atLeast_mic_fraction(x, fitness_estimate, concentrations_dict, mic_fraction))
+                    
                     # print warnings of MIC==nan
                     #df_nan_mic = df_f[pd.isna(df_f[mic_field])]
                     #if len(df_nan_mic)>0: print_with_runtime("WARNING: In drug=%s and fitness estimate=%s, there are %i spots where we could not calculate %s. This is be due to missing spots in some concentration."%(drug, fitness_estimate, len(df_nan_mic), mic_field))
@@ -1540,8 +1493,8 @@ def get_susceptibility_df(fitness_df, fitness_estimates, min_points_to_calculate
                 df_f["fitness_estimate"] = fitness_estimate
                 df_all = df_all.append(df_f).reset_index(drop=True)
 
-        # checks 
-        for k in set(df_all.keys()).difference({"MIC_25", "MIC_50", "MIC_75", "MIC_90", "maxMIC_25", "maxMIC_50", "maxMIC_75", "maxMIC_90", "SMG_MIC_25", "SMG_MIC_50", "SMG_MIC_75", "SMG_MIC_90", "rAUC_concentration", "rAUC_log2_concentration"}): check_no_nans_series(df_all[k])
+        # checks        
+        for k in set(df_all.keys()).difference({"MIC_10", "MIC_25", "MIC_50", "MIC_75", "MIC_90", "SMG_MIC_10", "SMG_MIC_25", "SMG_MIC_50", "SMG_MIC_75", "SMG_MIC_90", "rAUC_concentration", "rAUC_log2_concentration", "max_Conc_RelFitness_atLeast0.1", "max_Conc_RelFitness_atLeast0.25", "max_Conc_RelFitness_atLeast0.5", "max_Conc_RelFitness_atLeast0.75", "max_Conc_RelFitness_atLeast0.9"}): check_no_nans_series(df_all[k])
 
         # add exp name
         df_all["experiment_name"] = experiment_name
@@ -1612,7 +1565,7 @@ def get_row_simple_susceptibility_df_one_strain_and_drug(df):
     if len(df)!=len(set(df.replicateID)): raise ValueError("replicateIDs should be unique")
 
     # go through different fields
-    for field_name, field in [("MIC50", "MIC_50"), ("SMG-MIC50", "SMG_MIC_50"), ("rAUC", "rAUC_concentration"), ("rAUC_log2", "rAUC_log2_concentration"), ("MIC50_log10", "log10_MIC_50")]:
+    for field_name, field in [("MIC50", "MIC_50"), ("SMG-MIC50", "SMG_MIC_50"), ("rAUC", "rAUC_concentration"), ("rAUC_log2", "rAUC_log2_concentration"), ("MIC50_log10", "log10_MIC_50"), ("max_Conc_RelFitness_atLeast0.5", "max_Conc_RelFitness_atLeast0.5")]:
 
         # debug
         if field not in df.keys(): continue
@@ -4266,9 +4219,10 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
             for f in ['median_MIC50', 'mode_MIC50', 'mad_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC', 'median_rAUC_log2', 'mode_rAUC_log2', 'mad_rAUC_log2',]: simple_susceptibility_df[f] = simple_susceptibility_df[f].apply(get_clean_float_value)
 
             simple_susceptibility_df["experiment_name"] = experiment_name
-            relevant_fields_simple_susc = ['drug', 'strain', 'median_MIC50', 'mode_MIC50', 'mad_MIC50', 'range_MIC50', 'replicates_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'range_SMG-MIC50', 'replicates_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC', 'range_rAUC', 'replicates_rAUC', 'median_rAUC_log2', 'mode_rAUC_log2', 'mad_rAUC_log2', 'range_rAUC_log2', 'replicates_rAUC_log2', 'max_concentration', 'experiment_name']
-            simple_susceptibility_df = simple_susceptibility_df[relevant_fields_simple_susc]
-
+            max_conc_fields = ['median_max_Conc_RelFitness_atLeast0.5', 'mode_max_Conc_RelFitness_atLeast0.5', 'mad_max_Conc_RelFitness_atLeast0.5', 'range_max_Conc_RelFitness_atLeast0.5', 'replicates_max_Conc_RelFitness_atLeast0.5']
+            relevant_fields_simple_susc = ['drug', 'strain', 'median_MIC50', 'mode_MIC50', 'mad_MIC50', 'range_MIC50', 'replicates_MIC50', 'median_SMG-MIC50', 'mode_SMG-MIC50', 'mad_SMG-MIC50', 'range_SMG-MIC50', 'replicates_SMG-MIC50', 'median_rAUC', 'mode_rAUC', 'mad_rAUC', 'range_rAUC', 'replicates_rAUC', 'median_rAUC_log2', 'mode_rAUC_log2', 'mad_rAUC_log2', 'range_rAUC_log2', 'replicates_rAUC_log2'] + max_conc_fields + ['max_concentration', 'experiment_name']
+            simple_susceptibility_df = simple_susceptibility_df[relevant_fields_simple_susc].copy()
+            
             save_df_as_tab(simple_susceptibility_df, "%s/susceptibility_measurements_simple.csv"%extended_outdir)
             simple_susceptibility_df.to_excel("%s/susceptibility_measurements_simple.xlsx"%extended_outdir, index=False)
             files_main_output.append("susceptibility_measurements_simple.xlsx")
@@ -4318,7 +4272,7 @@ def run_analyze_images_get_rel_fitness_and_susceptibility_measurements(plate_lay
         outdir_drug_vs_fitness_extended_all_spots = "%s/drug_vs_fitness_lines_all_spots"%extended_outdir
         plot_growth_at_different_drugs(df_fitness_measurements, outdir_drug_vs_fitness_extended_all_spots, fitness_estimates, min_nAUC_to_beConsideredGrowing, experiment_name, type_data="all_data", only_absolute_estimates=True)
 
-        # make the heatmap of the susceptibility measures        
+        # make the heatmap of the susceptibility measures.       
         if any(drug_to_nconcs>=2): 
 
             for type_measurements_susc, outir_plots_all_susc in [("raw", "%s/susceptibility_heatmaps"%extended_outdir), ("log", "%s/susceptibility_heatmaps_log_scale"%extended_outdir)]:
