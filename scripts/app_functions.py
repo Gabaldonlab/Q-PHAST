@@ -3604,12 +3604,23 @@ def run_analyze_images_get_fitness_measurements(plate_layout_file, images_dir, o
         df_growth_measurements = df_growth_measurements.rename(columns={"Row":"row", "Column":"column"})[df_growth_fields]
         check_no_nans_in_df(df_growth_measurements, ignore_keys={"blueMeanBack", "greenMeanBack", "redMeanBack", 'redMean', 'greenMean', 'blueMean'})
         
+        # redefine the Growth to zero of NaN fields
+        def get_zero_growth_for_NaNback(r):
+            if any(pd.isna(r[["blueMeanBack", "greenMeanBack", "redMeanBack"]])): 
+                if r.Growth>0.1: print("WARNING: There is a spot with NaN pixel intensity but Growth=%.3f"%r.Growth)
+                return 0.001
+            else:
+                return r.Growth
+        
+        df_growth_measurements["Growth"] = df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack", "Growth"]].apply(get_zero_growth_for_NaNback, axis=1)
+
         # print warning for NaNs
         df_test = df_growth_measurements[df_growth_measurements[["blueMeanBack", "greenMeanBack", "redMeanBack"]].apply(pd.isna, axis=1).apply(any, axis=1)].copy()
         if len(df_test)>0: 
+            
             if any(df_test.Growth!=0.001): raise ValueError("the Growth should be the pseudocount 0.001")
-            print("WARNING: There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be properly analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel. Right now, the software will just set Growh=0.001 (pseudocount) for these and analyze them. This is the desired behavior in case that you want to compare susceptibility measurements across experiments with equivalent drug concentration ranges. These are the spots and timepoints with no Growth:\n%s"%(plate_batch, plate, df_test[["row", "column", "Timeseries.order", "Growth"]]))
-
+            print("WARNING: There are NaNs in columns blueMeanBack, greenMeanBack, redMeanBack of df_growth_measurements for %s plate %i. This could be because there are no spots growing in the plate, which means that this plate cannot be properly analyzed. If this is the case, you may skip this plate by leaving it empty in the plate layout excel. Right now, the software will just set a very small Growh (pseudocount 0.001) for these and analyze them. This is the desired behavior in case that you want to compare susceptibility measurements across experiments with equivalent drug concentration ranges. These are the spots and timepoints with no Growth:\n%s\n"%(plate_batch, plate, df_test[["row", "column", "Timeseries.order", "Growth"]]))
+            
         # keep
         df_growth_measurements_all = df_growth_measurements_all.append(df_growth_measurements)
 
